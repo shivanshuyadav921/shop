@@ -1,0 +1,24 @@
+{
+  "name": "shop-payment-platform",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "libs/*"
+  ],
+  "scripts": {
+    "bootstrap": "npm install",
+    "build": "npm run build --workspaces",
+    "start:auth": "npm --workspace @shop/auth-service start",
+    "start:invoice": "npm --workspace @shop/invoice-service start",
+    "start:payment": "npm --workspace @shop/payment-service start",
+    "start:wallet": "npm --workspace @shop/wallet-service start",
+    "start:fraud": "npm --workspace @shop/fraud-service start",
+    "start:analytics": "npm --workspace @shop/analytics-service start",
+    "start:compliance": "npm --workspace @shop/compliance-service start",
+    "start:audit": "npm --workspace @shop/audit-service start",
+    "start:ledger": "npm --workspace @shop/ledger-service start"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

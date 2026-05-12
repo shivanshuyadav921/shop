@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - production-stack.yaml
+  - backup-cronjob.yaml
+  - enterprise-ops.yaml
+
+configMapGenerator:
+  - name: shop-platform-config
+    literals:
+      - NODE_ENV=production
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=shop
+      - DATABASE_NAME=shop_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BROKER=kafka:9092
+      - PROMETHEUS_HOST=prometheus
+      - GRAFANA_HOST=grafana
+  - name: grafana-datasources
+    files:
+      - datasource.yml=../../grafana/provisioning/datasources/datasource.yml
+  - name: grafana-dashboard-provider
+    files:
+      - dashboard.yml=../../grafana/provisioning/dashboards/dashboard.yml
+  - name: grafana-enterprise-overview
+    files:
+      - enterprise-overview.json=../../grafana/dashboards/enterprise-overview.json
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+labels:
+  - pairs:
+      platform: shop
+      environment: production
+    includeSelectors: false

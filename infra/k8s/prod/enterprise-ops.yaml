@@ -1,0 +1,505 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-container-limits
+  namespace: shop-platform
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "256Mi"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: shop-platform-quota
+  namespace: shop-platform
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    pods: "120"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-namespace-only
+  namespace: shop-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop-platform
+  namespace: shop-platform
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+    - hosts:
+        - api.shop.example.com
+      secretName: shop-platform-tls
+  rules:
+    - host: api.shop.example.com
+      http:
+        paths:
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 80
+          - path: /invoices
+            pathType: Prefix
+            backend:
+              service:
+                name: invoice-service
+                port:
+                  number: 80
+          - path: /payments
+            pathType: Prefix
+            backend:
+              service:
+                name: payment-service
+                port:
+                  number: 80
+          - path: /wallet
+            pathType: Prefix
+            backend:
+              service:
+                name: wallet-service
+                port:
+                  number: 80
+          - path: /fraud
+            pathType: Prefix
+            backend:
+              service:
+                name: fraud-service
+                port:
+                  number: 80
+          - path: /ledger
+            pathType: Prefix
+            backend:
+              service:
+                name: ledger-service
+                port:
+                  number: 80
+          - path: /compliance
+            pathType: Prefix
+            backend:
+              service:
+                name: compliance-service
+                port:
+                  number: 80
+          - path: /analytics
+            pathType: Prefix
+            backend:
+              service:
+                name: analytics-service
+                port:
+                  number: 80
+          - path: /audit
+            pathType: Prefix
+            backend:
+              service:
+                name: audit-service
+                port:
+                  number: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: auth-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: auth-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: invoice-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: invoice-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: payment-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: wallet-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: wallet-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fraud-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: fraud-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ledger-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: ledger-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: compliance-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: compliance-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: analytics-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: analytics-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: audit-service-pdb
+  namespace: shop-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: audit-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-service
+  namespace: shop-platform
+spec:
+  minReplicas: 3
+  maxReplicas: 12
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth-service
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payment-service
+  namespace: shop-platform
+spec:
+  minReplicas: 3
+  maxReplicas: 15
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payment-service
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ledger-service
+  namespace: shop-platform
+spec:
+  minReplicas: 3
+  maxReplicas: 12
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ledger-service
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blackbox-exporter
+  namespace: shop-platform
+spec:
+  selector:
+    app: blackbox-exporter
+  ports:
+    - name: http
+      port: 9115
+      targetPort: 9115
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blackbox-exporter
+  namespace: shop-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: blackbox-exporter
+  template:
+    metadata:
+      labels:
+        app: blackbox-exporter
+    spec:
+      containers:
+        - name: blackbox-exporter
+          image: prom/blackbox-exporter:latest
+          args:
+            - '--config.file=/etc/blackbox_exporter/config.yml'
+          ports:
+            - containerPort: 9115
+          volumeMounts:
+            - name: config
+              mountPath: /etc/blackbox_exporter
+      volumes:
+        - name: config
+          configMap:
+            name: blackbox-exporter-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blackbox-exporter-config
+  namespace: shop-platform
+data:
+  config.yml: |
+    modules:
+      http_2xx:
+        prober: http
+        timeout: 5s
+        http:
+          valid_status_codes: [200]
+          method: GET
+          preferred_ip_protocol: ip4
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: shop-platform
+spec:
+  selector:
+    app: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: 9093
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: shop-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:latest
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+          ports:
+            - containerPort: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: shop-platform
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: default
+      group_by: ['alertname', 'service']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 30m
+    receivers:
+      - name: default
+        webhook_configs:
+          - url: http://audit-service/audit/events
+            send_resolved: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: shop-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shop-platform-prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: shop-platform-prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: shop-platform-prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: shop-platform
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: shop-platform
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: shop-platform
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail
+      containers:
+        - name: promtail
+          image: grafana/promtail:3.0.0
+          args:
+            - '-config.file=/etc/promtail/promtail.yaml'
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: containers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: promtail-config
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+        - name: containers
+          hostPath:
+            path: /var/lib/docker/containers
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: shop-platform
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+    positions:
+      filename: /tmp/positions.yaml
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+    scrape_configs:
+      - job_name: kubernetes-pods
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: kubernetes-pods
+              __path__: /var/log/pods/*/*/*.log

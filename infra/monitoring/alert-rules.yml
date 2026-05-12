@@ -1,0 +1,65 @@
+groups:
+  - name: service-health
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Instance down"
+          description: "A monitored instance is unreachable."
+
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is unavailable"
+          description: "PostgreSQL is not responding to Prometheus scrapes."
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is unavailable"
+          description: "Redis is not responding to Prometheus scrapes."
+
+      - alert: ServiceHealthProbeFailed
+        expr: probe_success{job="service-health"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service health probe failed"
+          description: "{{ $labels.instance }} failed its /health probe."
+
+      - alert: KafkaExporterDown
+        expr: up{job="kafka"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka metrics are unavailable"
+          description: "Kafka exporter is unavailable or cannot reach Kafka."
+
+      - alert: AvailabilitySLOBurn
+        expr: avg_over_time(probe_success{job="service-health"}[30m]) < 0.9999
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "99.99% availability SLO burn"
+          description: "Health probe availability dropped below the 99.99% target."
+
+      - alert: LokiStorageHigh
+        expr: loki_storage_volume_used_bytes / loki_storage_volume_total_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki storage utilization high"
+          description: "Loki storage usage is above 85%."

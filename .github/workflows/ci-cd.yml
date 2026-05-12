@@ -1,0 +1,126 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Workspace build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v5
+        with:
+          version: 'latest'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build all packages
+        run: npm run build --workspaces
+
+      - name: Validate Kubernetes manifests
+        run: kubectl kustomize infra/k8s/prod > /tmp/shop-platform.yaml
+
+      - name: Validate Docker Compose files
+        run: |
+          docker compose -f infra/docker-compose.yml config
+          docker compose -f infra/docker-compose.prod.yml config
+
+  docker-publish:
+    name: Build and publish service images
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-service
+          - invoice-service
+          - payment-service
+          - wallet-service
+          - fraud-service
+          - ledger-service
+          - compliance-service
+          - analytics-service
+          - audit-service
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push service image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_URL }}/shop/${{ matrix.service }}:${{ github.sha }}
+            ${{ secrets.REGISTRY_URL }}/shop/${{ matrix.service }}:latest
+          file: ./Dockerfile
+          build-args: |
+            NODE_ENV=production
+            SERVICE_NAME=${{ matrix.service }}
+
+  deploy:
+    name: Deploy to Kubernetes
+    needs: docker-publish
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v5
+        with:
+          version: 'latest'
+
+      - name: Decode kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > kubeconfig
+        shell: bash
+
+      - name: Deploy with Kustomize
+        run: |
+          find infra/k8s/prod -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${{ secrets.REGISTRY_URL }}#g" {} +
+          KUBECONFIG=kubeconfig kubectl apply -k infra/k8s/prod
+        shell: bash
+
+      - name: Verify rollout status
+        run: |
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/auth-service --timeout=180s || true
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/invoice-service --timeout=180s || true
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/payment-service --timeout=180s || true
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/wallet-service --timeout=180s || true
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/fraud-service --timeout=180s || true
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/ledger-service --timeout=180s || true
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/compliance-service --timeout=180s || true
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/analytics-service --timeout=180s || true
+          KUBECONFIG=kubeconfig kubectl rollout status deployment/audit-service --timeout=180s || true
+        shell: bash

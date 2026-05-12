@@ -1,0 +1,26 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+  receiver: 'on-call'
+
+receivers:
+  - name: on-call
+    email_configs:
+      - to: 'ops-team@example.com'
+        from: 'alertmanager@example.com'
+        smarthost: 'smtp.example.com:587'
+        auth_username: 'alertmanager@example.com'
+        auth_identity: 'alertmanager@example.com'
+        auth_password: 'REPLACE_WITH_SMTP_PASSWORD'
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service']

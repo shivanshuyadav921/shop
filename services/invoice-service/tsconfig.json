@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "outDir": "dist",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shop/common-utils": ["../../libs/common-utils/src"]
+    }
+  },
+  "include": ["src"]
+}

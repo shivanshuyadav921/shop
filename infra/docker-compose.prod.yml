@@ -1,0 +1,396 @@
+version: '3.9'
+
+networks:
+  backend:
+    driver: bridge
+  monitoring:
+    driver: bridge
+  ingress:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  grafana-data:
+  prometheus-data:
+  loki-data:
+  pgbackups:
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:8.2.1
+    hostname: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - 2181:2181
+    networks:
+      - backend
+    restart: always
+
+  kafka:
+    image: confluentinc/cp-kafka:8.2.1
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+    ports:
+      - 9092:9092
+    networks:
+      - backend
+    restart: always
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+      POSTGRES_DB: shop_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    networks:
+      - backend
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    ports:
+      - 6379:6379
+    networks:
+      - backend
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - 9090:9090
+    networks:
+      - monitoring
+      - backend
+    restart: always
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    ports:
+      - 9115:9115
+    networks:
+      - monitoring
+      - backend
+    restart: always
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    environment:
+      - DATA_SOURCE_NAME=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db?sslmode=disable
+    depends_on:
+      - postgres
+    ports:
+      - 9187:9187
+    networks:
+      - monitoring
+      - backend
+    restart: always
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    depends_on:
+      - redis
+    ports:
+      - 9121:9121
+    networks:
+      - monitoring
+      - backend
+    restart: always
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    command:
+      - '--kafka.server=kafka:9092'
+    depends_on:
+      - kafka
+    ports:
+      - 9308:9308
+    networks:
+      - monitoring
+      - backend
+    restart: always
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    ports:
+      - 9093:9093
+    networks:
+      - monitoring
+    restart: always
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    depends_on:
+      - prometheus
+      - loki
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - 3000:3000
+    networks:
+      - monitoring
+    restart: always
+
+  loki:
+    image: grafana/loki:2.9.1
+    command:
+      - '-config.file=/etc/loki/loki-config.yaml'
+    volumes:
+      - ./monitoring/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - 3100:3100
+    networks:
+      - monitoring
+    restart: always
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./logging/promtail-config.yaml:/etc/promtail/promtail.yaml:ro
+    command:
+      - '--config.file=/etc/promtail/promtail.yaml'
+    networks:
+      - monitoring
+      - backend
+    restart: always
+
+  auth-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: auth-service
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - PORT=3000
+      - DATABASE_URL=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - AUTH_NOTIFICATION_WEBHOOK_URL=${AUTH_NOTIFICATION_WEBHOOK_URL:?AUTH_NOTIFICATION_WEBHOOK_URL is required}
+      - AUTH_NOTIFICATION_WEBHOOK_TOKEN=${AUTH_NOTIFICATION_WEBHOOK_TOKEN:?AUTH_NOTIFICATION_WEBHOOK_TOKEN is required}
+      - NODE_ENV=production
+    ports:
+      - 3000:3000
+    networks:
+      - backend
+    restart: always
+
+  invoice-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: invoice-service
+    depends_on:
+      - postgres
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db
+      - NODE_ENV=production
+    ports:
+      - 3001:3001
+    networks:
+      - backend
+    restart: always
+
+  payment-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: payment-service
+    depends_on:
+      - postgres
+      - kafka
+    environment:
+      - PORT=3002
+      - DATABASE_URL=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db
+      - KAFKA_BROKER_URL=kafka:9092
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN is required}
+      - PAYMENT_PROVIDER_CONFIGS=${PAYMENT_PROVIDER_CONFIGS:?PAYMENT_PROVIDER_CONFIGS is required}
+      - NODE_ENV=production
+    ports:
+      - 3002:3002
+    networks:
+      - backend
+    restart: always
+
+  wallet-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: wallet-service
+    depends_on:
+      - postgres
+    environment:
+      - PORT=3003
+      - DATABASE_URL=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db
+      - NODE_ENV=production
+    ports:
+      - 3003:3003
+    networks:
+      - backend
+    restart: always
+
+  fraud-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: fraud-service
+    depends_on:
+      - postgres
+    environment:
+      - PORT=3004
+      - DATABASE_URL=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db
+      - NODE_ENV=production
+    ports:
+      - 3004:3004
+    networks:
+      - backend
+    restart: always
+
+  ledger-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: ledger-service
+    depends_on:
+      - postgres
+    environment:
+      - PORT=3006
+      - DATABASE_URL=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db
+      - EVENT_LOG_ENABLED=true
+      - NODE_ENV=production
+    ports:
+      - 3006:3006
+    networks:
+      - backend
+    restart: always
+
+  compliance-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: compliance-service
+    depends_on:
+      - postgres
+    environment:
+      - PORT=3005
+      - DATABASE_URL=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db
+      - COMPLIANCE_UPLOAD_PATH=/data/compliance/uploads
+      - ALERT_EMAIL_FROM=compliance@shop.example.com
+      - COMPLIANCE_VERIFICATION_API_BASE_URL=${COMPLIANCE_VERIFICATION_API_BASE_URL:?COMPLIANCE_VERIFICATION_API_BASE_URL is required}
+      - COMPLIANCE_VERIFICATION_API_TOKEN=${COMPLIANCE_VERIFICATION_API_TOKEN:?COMPLIANCE_VERIFICATION_API_TOKEN is required}
+      - NODE_ENV=production
+    ports:
+      - 3005:3005
+    volumes:
+      - compliance-data:/data
+    networks:
+      - backend
+    restart: always
+
+  analytics-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: analytics-service
+    depends_on:
+      - postgres
+    environment:
+      - PORT=3010
+      - DATABASE_URL=postgresql://shop:${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}@postgres:5432/shop_db
+      - ANALYTICS_REPORT_CRON=0 2 * * *
+      - ANALYTICS_WINDOW_DAYS=30
+      - NODE_ENV=production
+    ports:
+      - 3010:3010
+    networks:
+      - backend
+    restart: always
+
+  audit-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: audit-service
+    depends_on:
+      - postgres
+    environment:
+      - PORT=3007
+      - NODE_ENV=production
+    ports:
+      - 3007:3007
+    networks:
+      - backend
+    restart: always
+
+  backup:
+    image: postgres:15-alpine
+    depends_on:
+      - postgres
+    volumes:
+      - ./backups:/backups:ro
+      - pgbackups:/backups/archive
+    environment:
+      - PGPASSWORD=${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+      - RETENTION_DAYS=30
+    entrypoint: ["sh", "-c", "mkdir -p /backups/archive && while sleep 86400; do /backups/backup.sh; done"]
+    networks:
+      - backend
+    restart: always
