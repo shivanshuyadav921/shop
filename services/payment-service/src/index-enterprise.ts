@@ -11,10 +11,10 @@ import PaymentTokenizer from '@shop/crypto-vault/dist/tokenization/tokenizer';
 import DistributedLock from '@shop/distributed-transactions/dist/locking/distributed-lock';
 import CircuitBreaker from '@shop/distributed-transactions/dist/circuit-breaker/circuit-breaker';
 import IdempotencyManager from '@shop/distributed-transactions/dist/exactly-once/idempotency-manager';
-import ImmutableLedger from '@shop/ledger-core/dist/ledger/immutable-ledger';
+import ImmutableLedger, { EntryType } from '@shop/ledger-core/dist/ledger/immutable-ledger';
 import DeviceFingerprinter from '@shop/fraud-detection/dist/device-intelligence/device-fingerprint';
 import RiskScorer from '@shop/fraud-detection/dist/risk-scoring/risk-scorer';
-import KYCManager from '@shop/compliance-engine/dist/kyc/kyc-manager';
+import KYCManager, { KYCLevel } from '@shop/compliance-engine/dist/kyc/kyc-manager';
 import AMLChecker from '@shop/compliance-engine/dist/aml/aml-checker';
 import AuditVault, { AuditAction } from '@shop/compliance-engine/dist/audit/audit-vault';
 
@@ -199,7 +199,7 @@ app.post('/api/v1/payments', async (req: Request, res: Response) => {
     // ========== COMPLIANCE CHECKS ==========
     // Check KYC
     const kycProfile = kycManager.getProfile(customerId);
-    if (!kycProfile || !kycManager.isVerifiedAt(customerId, 'STANDARD' as any)) {
+    if (!kycProfile || !kycManager.isVerifiedAt(customerId, KYCLevel.STANDARD)) {
       return res.status(403).json({ error: 'Customer not KYC verified' });
     }
 
@@ -253,7 +253,7 @@ app.post('/api/v1/payments', async (req: Request, res: Response) => {
       // ========== LEDGER ENTRIES ==========
       // Record in immutable ledger (double-entry accounting)
       const debitEntry = ledger.postEntry(
-        'DEBIT',
+        EntryType.DEBIT,
         `merchant:${merchantId}:${currency}`,
         amount,
         paymentId,
@@ -261,7 +261,7 @@ app.post('/api/v1/payments', async (req: Request, res: Response) => {
       );
 
       const creditEntry = ledger.postEntry(
-        'CREDIT',
+        EntryType.CREDIT,
         `customer:${customerId}:${currency}`,
         amount,
         paymentId,
@@ -361,6 +361,7 @@ app.get('/ready', async (req: Request, res: Response) => {
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   logger.error('Unhandled error:', err);
 
+  const span = trace.getActiveSpan();
   span?.recordException(err);
   span?.setStatus({ code: SpanStatusCode.ERROR });
 

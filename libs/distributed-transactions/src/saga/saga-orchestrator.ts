@@ -206,6 +206,10 @@ export class SagaOrchestrator {
       { retryLimit: 3, retryDelay: 60 }
     );
 
+    if (jobId === null) {
+      throw new Error(`Failed to queue saga ${sagaName}`);
+    }
+
     return jobId;
   }
 }

@@ -99,7 +99,7 @@ export class RetentionPolicyManager {
     const policies: RetentionPolicy[] = [];
 
     for (const policy of this.policies.values()) {
-      if (policy.jurisdiction === Jurisdiction[jurisdiction as any]) {
+      if (policy.jurisdiction === jurisdiction) {
         policies.push(policy);
       }
     }

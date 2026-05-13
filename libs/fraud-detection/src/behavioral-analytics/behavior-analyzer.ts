@@ -113,7 +113,7 @@ export class BehaviorAnalyzer {
           flag: 'unusual_amount',
           severity: 'high',
           details: `Amount ${amount} is ${deviations.toFixed(1)}σ above average`,
-          flagedAt: new Date(),
+          flaggedAt: new Date(),
         });
         riskScore += 40;
       }
@@ -127,7 +127,7 @@ export class BehaviorAnalyzer {
           flag: 'new_merchant',
           severity: 'low',
           details: `First transaction with merchant: ${merchant}`,
-          flagedAt: new Date(),
+          flaggedAt: new Date(),
         });
         riskScore += 15;
       }
@@ -141,7 +141,7 @@ export class BehaviorAnalyzer {
           flag: 'new_country',
           severity: 'medium',
           details: `First transaction from country: ${country}`,
-          flagedAt: new Date(),
+          flaggedAt: new Date(),
         });
         riskScore += 30;
       }
@@ -156,7 +156,7 @@ export class BehaviorAnalyzer {
           flag: 'velocity_exceeded',
           severity: 'high',
           details: `User exceeded normal daily transaction count`,
-          flagedAt: new Date(),
+          flaggedAt: new Date(),
         });
         riskScore += 45;
       }

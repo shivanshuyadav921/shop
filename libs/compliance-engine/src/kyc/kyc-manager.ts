@@ -21,6 +21,13 @@ export enum VerificationStatus {
   EXPIRED = 'EXPIRED',
 }
 
+const KYC_LEVEL_RANK: Record<KYCLevel, number> = {
+  [KYCLevel.NONE]: 0,
+  [KYCLevel.BASIC]: 1,
+  [KYCLevel.STANDARD]: 2,
+  [KYCLevel.ENHANCED]: 3,
+};
+
 export interface KYCProfile {
   userId: string;
   kycLevel: KYCLevel;
@@ -173,7 +180,9 @@ export class KYCManager {
 
     profile.address = { ...profile.address, ...address };
     profile.address.verificationDate = new Date();
-    profile.kycLevel = Math.max(profile.kycLevel, KYCLevel.STANDARD) as any;
+    if (KYC_LEVEL_RANK[profile.kycLevel] < KYC_LEVEL_RANK[KYCLevel.STANDARD]) {
+      profile.kycLevel = KYCLevel.STANDARD;
+    }
     profile.lastUpdatedAt = new Date();
 
     this.logger.debug(`Updated address verification for user ${userId}`);
@@ -224,7 +233,7 @@ export class KYCManager {
     if (!profile) return false;
 
     if (profile.status !== VerificationStatus.APPROVED) return false;
-    if (profile.kycLevel < requiredLevel) return false;
+    if (KYC_LEVEL_RANK[profile.kycLevel] < KYC_LEVEL_RANK[requiredLevel]) return false;
     if (profile.expiresAt && new Date() > profile.expiresAt) return false;
 
     return true;
