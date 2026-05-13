@@ -38,6 +38,17 @@ jobs:
         run: kubectl kustomize infra/k8s/prod > /tmp/shop-platform.yaml
 
       - name: Validate Docker Compose files
+        env:
+          DATABASE_PASSWORD: ci-compose-validation-password
+          GRAFANA_ADMIN_USER: ci-admin
+          GRAFANA_ADMIN_PASSWORD: ci-compose-validation-grafana-password
+          JWT_SECRET: ci-compose-validation-jwt-secret
+          AUTH_NOTIFICATION_WEBHOOK_URL: https://example.invalid/auth-webhook
+          AUTH_NOTIFICATION_WEBHOOK_TOKEN: ci-compose-validation-auth-webhook-token
+          INTERNAL_API_TOKEN: ci-compose-validation-internal-api-token
+          PAYMENT_PROVIDER_CONFIGS: '{"default":{"provider":"mock","enabled":true}}'
+          COMPLIANCE_VERIFICATION_API_BASE_URL: https://example.invalid/compliance
+          COMPLIANCE_VERIFICATION_API_TOKEN: ci-compose-validation-compliance-token
         run: |
           docker compose -f infra/docker-compose.yml config
           docker compose -f infra/docker-compose.prod.yml config
