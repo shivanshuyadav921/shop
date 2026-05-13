@@ -5,6 +5,7 @@ resources:
   - production-stack.yaml
   - backup-cronjob.yaml
   - enterprise-ops.yaml
+  - ../../grafana
 
 configMapGenerator:
   - name: shop-platform-config
@@ -19,15 +20,6 @@ configMapGenerator:
       - KAFKA_BROKER=kafka:9092
       - PROMETHEUS_HOST=prometheus
       - GRAFANA_HOST=grafana
-  - name: grafana-datasources
-    files:
-      - datasource.yml=../../grafana/provisioning/datasources/datasource.yml
-  - name: grafana-dashboard-provider
-    files:
-      - dashboard.yml=../../grafana/provisioning/dashboards/dashboard.yml
-  - name: grafana-enterprise-overview
-    files:
-      - enterprise-overview.json=../../grafana/dashboards/enterprise-overview.json
 
 generatorOptions:
   disableNameSuffixHash: true
