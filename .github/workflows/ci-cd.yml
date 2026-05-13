@@ -75,13 +75,39 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve registry coordinates
+        id: registry
+        shell: bash
+        run: |
+          raw='${{ secrets.REGISTRY_URL }}'
+          raw="${raw#http://}"
+          raw="${raw#https://}"
+          raw="${raw%/}"
+          registry_host="${raw%%/*}"
+          registry_path="${raw#${registry_host}}"
+          registry_path="${registry_path#/}"
+
+          if [ -z "$registry_host" ]; then
+            echo 'REGISTRY_URL is empty or invalid' >&2
+            exit 1
+          fi
+
+          if [ -n "$registry_path" ]; then
+            image_base="${registry_host}/${registry_path}/shop"
+          else
+            image_base="${registry_host}/shop"
+          fi
+
+          echo "registry_host=${registry_host}" >> "$GITHUB_OUTPUT"
+          echo "image_base=${image_base}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.REGISTRY_URL }}
+          registry: ${{ steps.registry.outputs.registry_host }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
@@ -91,12 +117,14 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.REGISTRY_URL }}/shop/${{ matrix.service }}:${{ github.sha }}
-            ${{ secrets.REGISTRY_URL }}/shop/${{ matrix.service }}:latest
+            ${{ steps.registry.outputs.image_base }}/${{ matrix.service }}:${{ github.sha }}
+            ${{ steps.registry.outputs.image_base }}/${{ matrix.service }}:latest
           file: ./Dockerfile
           build-args: |
             NODE_ENV=production
             SERVICE_NAME=${{ matrix.service }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
   deploy:
     name: Deploy to Kubernetes
@@ -106,6 +134,31 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve registry coordinates
+        id: registry
+        shell: bash
+        run: |
+          raw='${{ secrets.REGISTRY_URL }}'
+          raw="${raw#http://}"
+          raw="${raw#https://}"
+          raw="${raw%/}"
+          registry_host="${raw%%/*}"
+          registry_path="${raw#${registry_host}}"
+          registry_path="${registry_path#/}"
+
+          if [ -z "$registry_host" ]; then
+            echo 'REGISTRY_URL is empty or invalid' >&2
+            exit 1
+          fi
+
+          if [ -n "$registry_path" ]; then
+            image_base="${registry_host}/${registry_path}/shop"
+          else
+            image_base="${registry_host}/shop"
+          fi
+
+          echo "image_base=${image_base}" >> "$GITHUB_OUTPUT"
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v5
@@ -119,7 +172,7 @@ jobs:
 
       - name: Deploy with Kustomize
         run: |
-          find infra/k8s/prod -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${{ secrets.REGISTRY_URL }}#g" {} +
+          find infra/k8s/prod -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${{ steps.registry.outputs.image_base }}#g" {} +
           KUBECONFIG=kubeconfig kubectl apply -k infra/k8s/prod
         shell: bash
 
