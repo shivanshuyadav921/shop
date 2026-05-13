@@ -1,0 +1,269 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop-fintech
+  labels:
+    name: shop-fintech
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: distributed-tracing-config
+  namespace: shop-fintech
+data:
+  otel-collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              static_configs:
+                - targets: ['localhost:8888']
+
+    processors:
+      batch:
+        send_batch_size: 1024
+        timeout: 10s
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+      attributes:
+        actions:
+          - key: deployment.environment
+            value: production
+            action: insert
+          - key: service.version
+            from_attribute: version
+            action: insert
+
+    exporters:
+      jaeger:
+        endpoint: jaeger-collector:14250
+      prometheus:
+        endpoint: 0.0.0.0:8888
+      logging:
+        loglevel: debug
+      otlp:
+        client:
+          endpoint: tempo:4317
+          tls:
+            insecure: true
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, attributes]
+          exporters: [jaeger, otlp, logging]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: shop-fintech
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: production
+        environment: fintech
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: [alertmanager:9093]
+
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      - job_name: 'otel-collector'
+        static_configs:
+          - targets: ['otel-collector:8888']
+
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: 'true'
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: '(.+)'
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: '([^:]+)(?::\d+)?;(\d+)'
+            replacement: '$1:$2'
+            target_label: __address__
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: shop-fintech
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8888'
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.88.0
+          ports:
+            - name: grpc
+              containerPort: 4317
+            - name: http
+              containerPort: 4318
+            - name: metrics
+              containerPort: 8888
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: distributed-tracing-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: shop-fintech
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - name: grpc
+      port: 4317
+      targetPort: 4317
+    - name: http
+      port: 4318
+      targetPort: 4318
+    - name: metrics
+      port: 8888
+      targetPort: 8888
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-config
+  namespace: shop-fintech
+data:
+  sampling.json: |
+    {
+      "default_strategy": {
+        "type": "probabilistic",
+        "param": 0.1
+      },
+      "service_strategies": [
+        {
+          "service": "payment-service",
+          "type": "probabilistic",
+          "param": 0.5
+        },
+        {
+          "service": "auth-service",
+          "type": "probabilistic",
+          "param": 0.3
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jaeger
+  namespace: shop-fintech
+spec:
+  serviceName: jaeger
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.50
+          ports:
+            - name: grpc-collector
+              containerPort: 14250
+            - name: http-collector
+              containerPort: 14268
+            - name: serve-frontend
+              containerPort: 16686
+          volumeMounts:
+            - name: jaeger-storage
+              mountPath: /badger
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: jaeger-storage
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: shop-fintech
+spec:
+  selector:
+    app: jaeger
+  ports:
+    - name: grpc-collector
+      port: 14250
+      targetPort: 14250
+    - name: http-collector
+      port: 14268
+      targetPort: 14268
+    - name: serve-frontend
+      port: 16686
+      targetPort: 16686
+  type: LoadBalancer

@@ -1,0 +1,169 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: shop-fintech
+data:
+  fintech-alerts.yml: |
+    groups:
+      - name: fintech.rules
+        interval: 30s
+        rules:
+          # Payment Processing Alerts
+          - alert: HighPaymentFailureRate
+            expr: |
+              (
+                rate(payment_failures_total[5m]) / 
+                (rate(payment_failures_total[5m]) + rate(payment_successes_total[5m]))
+              ) > 0.05
+            for: 5m
+            annotations:
+              summary: "High payment failure rate detected"
+              description: "Payment failure rate is {{ $value | humanizePercentage }}"
+              severity: critical
+
+          - alert: PaymentProcessingLatency
+            expr: histogram_quantile(0.95, rate(payment_duration_seconds_bucket[5m])) > 5
+            for: 5m
+            annotations:
+              summary: "Payment processing latency high"
+              description: "P95 latency: {{ $value }}s"
+              severity: warning
+
+          # Ledger Consistency
+          - alert: LedgerReconciliationFailed
+            expr: ledger_reconciliation_failures_total > 0
+            for: 10m
+            annotations:
+              summary: "Ledger reconciliation failed"
+              description: "Ledger may have integrity issues"
+              severity: critical
+
+          - alert: LedgerDoubleEntryUnbalanced
+            expr: ledger_unbalanced_total > 0
+            for: 1m
+            annotations:
+              summary: "Double-entry accounting unbalanced"
+              description: "Accounting equation violated"
+              severity: critical
+
+          # Fraud Detection
+          - alert: HighFraudRiskAlert
+            expr: |
+              (
+                rate(fraud_alerts_high_total[5m]) > 10
+              )
+            for: 2m
+            annotations:
+              summary: "High volume of high-risk fraud alerts"
+              description: "{{ $value }} alerts/min"
+              severity: critical
+
+          - alert: FraudGraphAnomalyDetected
+            expr: fraud_graph_cluster_detections_total > 0
+            for: 1m
+            annotations:
+              summary: "Suspicious fraud pattern detected"
+              description: "Potential ring fraud or dealer collusion"
+              severity: warning
+
+          # Infrastructure Health
+          - alert: CircuitBreakerOpen
+            expr: circuit_breaker_state{state="OPEN"} > 0
+            for: 1m
+            annotations:
+              summary: "Circuit breaker open for {{ $labels.service }}"
+              description: "Service degradation detected"
+              severity: warning
+
+          - alert: HighDistributedLockContention
+            expr: rate(distributed_lock_wait_total[5m]) > 100
+            for: 5m
+            annotations:
+              summary: "High lock contention detected"
+              description: "Potential deadlock or congestion"
+              severity: warning
+
+          - alert: DeadLetterQueueBacklog
+            expr: dead_letter_queue_items_total > 1000
+            for: 10m
+            annotations:
+              summary: "DLQ has significant backlog"
+              description: "{{ $value }} items pending"
+              severity: warning
+
+          # Compliance & Security
+          - alert: AMLAlertBacklog
+            expr: aml_pending_review_alerts > 50
+            for: 1h
+            annotations:
+              summary: "AML alerts pending review"
+              description: "{{ $value }} alerts > 1h old"
+              severity: warning
+
+          - alert: KYCExpiryApproaching
+            expr: kyc_expiring_within_days{days="7"} > 100
+            for: 1h
+            annotations:
+              summary: "Large number of KYC verifications expiring soon"
+              description: "{{ $value }} verifications expiring in 7 days"
+              severity: info
+
+          - alert: SecurityAuditLogGap
+            expr: rate(audit_log_entries_total[5m]) < 0.1
+            for: 5m
+            annotations:
+              summary: "Audit logging appears offline"
+              description: "Audit trail generation stopped"
+              severity: critical
+
+          # Replication & Consensus
+          - alert: ReplicationLag
+            expr: replication_lag_seconds > 30
+            for: 5m
+            annotations:
+              summary: "Database replication lag high"
+              description: "Lag: {{ $value }}s"
+              severity: warning
+
+          - alert: IdempotencyStoreGrowing
+            expr: rate(idempotency_cache_size_bytes[5m]) > 1000000
+            for: 10m
+            annotations:
+              summary: "Idempotency cache growing rapidly"
+              description: "May indicate request duplication"
+              severity: warning
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fintech-alerts
+  namespace: shop-fintech
+spec:
+  groups:
+    - name: fintech.rules
+      interval: 30s
+      rules:
+        - alert: HighPaymentFailureRate
+          expr: |
+            (
+              rate(payment_failures_total[5m]) / 
+              (rate(payment_failures_total[5m]) + rate(payment_successes_total[5m]))
+            ) > 0.05
+          for: 5m
+          annotations:
+            summary: "High payment failure rate detected"
+            description: "Payment failure rate is {{ $value | humanizePercentage }}"
+          labels:
+            severity: critical
+            team: payments
+
+        - alert: LedgerReconciliationFailed
+          expr: ledger_reconciliation_failures_total > 0
+          for: 10m
+          annotations:
+            summary: "Ledger reconciliation failed"
+            description: "Ledger may have integrity issues"
+          labels:
+            severity: critical
+            team: accounting
