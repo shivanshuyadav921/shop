@@ -1,0 +1,10 @@
+apiVersion: 1
+dashboard:
+  provider:
+    name: enterprise-overview
+    orgId: 1
+    folder: Production
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards
+    editable: false

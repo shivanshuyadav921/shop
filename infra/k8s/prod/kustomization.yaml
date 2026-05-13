@@ -5,7 +5,7 @@ resources:
   - production-stack.yaml
   - backup-cronjob.yaml
   - enterprise-ops.yaml
-  - ../../grafana
+  - ../base/grafana
 
 configMapGenerator:
   - name: shop-platform-config
