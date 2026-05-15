@@ -57,14 +57,70 @@ jobs:
           docker compose -f infra/docker-compose.yml config
           docker compose -f infra/docker-compose.prod.yml config
 
-  docker-publish:
-    name: Build and publish service images
+  resolve-coordinates:
+    name: Resolve workflow coordinates
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      registry_url: ${{ steps.coordinates.outputs.registry_url }}
+      registry_host: ${{ steps.coordinates.outputs.registry_host }}
+      registry_path: ${{ steps.coordinates.outputs.registry_path }}
+      repository_owner: ${{ steps.coordinates.outputs.repository_owner }}
+      repository_name: ${{ steps.coordinates.outputs.repository_name }}
+      image_base: ${{ steps.coordinates.outputs.image_base }}
+      image_tag: ${{ steps.coordinates.outputs.image_tag }}
+      short_sha: ${{ steps.coordinates.outputs.short_sha }}
+      branch_name: ${{ steps.coordinates.outputs.branch_name }}
+      registry_source: ${{ steps.coordinates.outputs.registry_source }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve coordinates
+        id: coordinates
+        uses: ./.github/actions/resolve-coordinates
+        with:
+          registry_url: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || '' }}
+          repository: ${{ github.repository }}
+          repository_owner: ${{ github.repository_owner }}
+          repository_name: ${{ github.event.repository.name || '' }}
+          sha: ${{ github.sha }}
+          ref: ${{ github.ref }}
+          head_ref: ${{ github.head_ref || '' }}
+          event_name: ${{ github.event_name }}
+
+      - name: Verify resolved coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for value in \
+            "${{ steps.coordinates.outputs.registry_url }}" \
+            "${{ steps.coordinates.outputs.registry_host }}" \
+            "${{ steps.coordinates.outputs.repository_owner }}" \
+            "${{ steps.coordinates.outputs.repository_name }}" \
+            "${{ steps.coordinates.outputs.image_base }}" \
+            "${{ steps.coordinates.outputs.image_tag }}" \
+            "${{ steps.coordinates.outputs.short_sha }}" \
+            "${{ steps.coordinates.outputs.branch_name }}"; do
+            if [ -z "$value" ] || [ "$value" = "null" ] || [ "$value" = "undefined" ]; then
+              echo "Coordinate resolution failed" >&2
+              exit 1
+            fi
+          done
+
+          echo "Registry configured"
+          echo "${{ steps.coordinates.outputs.registry_host }}"
+          echo "${{ steps.coordinates.outputs.image_base }}"
+          echo "${{ steps.coordinates.outputs.image_tag }}"
+
+  docker-publish:
+    name: Build and publish service images
+    needs:
+      - build
+      - resolve-coordinates
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
-    env:
-      REGISTRY_URL_CONFIGURED: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || '' }}
-      REGISTRY_URL: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || format('ghcr.io/{0}', github.repository_owner) }}
     strategy:
       fail-fast: false
       matrix:
@@ -82,51 +138,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve registry coordinates
-        id: registry
+      - name: Verify resolved coordinates
         shell: bash
         run: |
-          raw="${REGISTRY_URL:-}"
-          if [ -z "$raw" ]; then
-            echo 'REGISTRY_URL did not resolve. Configure REGISTRY_URL as a repository secret or variable, or allow the GHCR fallback.' >&2
-            exit 1
-          fi
+          set -euo pipefail
 
-          raw="${raw#http://}"
-          raw="${raw#https://}"
-          raw="${raw%/}"
-
-          if [ -z "$raw" ] || [ "$raw" = "/" ]; then
-            echo 'REGISTRY_URL is empty or invalid' >&2
-            exit 1
-          fi
-
-          registry_host="${raw%%/*}"
-          registry_path="${raw#${registry_host}}"
-          registry_path="${registry_path#/}"
-
-          if [ -z "$registry_host" ] || [[ "$registry_host" =~ [[:space:]] ]]; then
-            echo 'REGISTRY_URL is empty or invalid' >&2
-            exit 1
-          fi
-
-          if [ -n "$registry_path" ]; then
-            image_base="${registry_host}/${registry_path}/shop"
-          else
-            image_base="${registry_host}/shop"
-          fi
+          for value in \
+            "${{ needs.resolve-coordinates.outputs.registry_url }}" \
+            "${{ needs.resolve-coordinates.outputs.registry_host }}" \
+            "${{ needs.resolve-coordinates.outputs.image_base }}" \
+            "${{ needs.resolve-coordinates.outputs.image_tag }}"; do
+            if [ -z "$value" ] || [ "$value" = "null" ] || [ "$value" = "undefined" ]; then
+              echo "Coordinate resolution failed" >&2
+              exit 1
+            fi
+          done
 
           echo "Registry configured"
-          if [ -n "${REGISTRY_URL_CONFIGURED:-}" ]; then
-            registry_source="configured"
-          else
-            registry_source="fallback"
-          fi
-
-          echo "REGISTRY_URL=${raw}" >> "$GITHUB_ENV"
-          echo "registry_host=${registry_host}" >> "$GITHUB_OUTPUT"
-          echo "image_base=${image_base}" >> "$GITHUB_OUTPUT"
-          echo "registry_source=${registry_source}" >> "$GITHUB_OUTPUT"
+          echo "${{ needs.resolve-coordinates.outputs.registry_host }}"
+          echo "${{ needs.resolve-coordinates.outputs.image_base }}"
+          echo "${{ needs.resolve-coordinates.outputs.image_tag }}"
 
       - name: Resolve registry credentials
         id: registry-auth
@@ -140,7 +171,7 @@ jobs:
 
           if [ -n "$username" ] && [ -n "$password" ]; then
             :
-          elif [ "${{ steps.registry.outputs.registry_host }}" = "ghcr.io" ]; then
+          elif [ "${{ needs.resolve-coordinates.outputs.registry_host }}" = "ghcr.io" ]; then
             username="${GITHUB_ACTOR}"
             password="${{ github.token }}"
           else
@@ -159,21 +190,9 @@ jobs:
       - name: Log in to registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ steps.registry.outputs.registry_host }}
+          registry: ${{ needs.resolve-coordinates.outputs.registry_host }}
           username: ${{ steps.registry-auth.outputs.username }}
           password: ${{ steps.registry-auth.outputs.password }}
-
-      - name: Verify resolved registry for matrix build
-        shell: bash
-        run: |
-          if [ -z "${REGISTRY_URL:-}" ]; then
-            echo 'REGISTRY_URL is empty or invalid' >&2
-            exit 1
-          fi
-
-          echo "Registry configured"
-          echo "${{ steps.registry.outputs.registry_host }}"
-          echo "${{ steps.registry.outputs.image_base }}"
 
       - name: Build and push service image
         uses: docker/build-push-action@v5
@@ -181,8 +200,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ steps.registry.outputs.image_base }}/${{ matrix.service }}:${{ github.sha }}
-            ${{ steps.registry.outputs.image_base }}/${{ matrix.service }}:latest
+            ${{ needs.resolve-coordinates.outputs.image_base }}/${{ matrix.service }}:${{ needs.resolve-coordinates.outputs.image_tag }}
+            ${{ needs.resolve-coordinates.outputs.image_base }}/${{ matrix.service }}:latest
           file: ./Dockerfile
           build-args: |
             NODE_ENV=production
@@ -192,64 +211,33 @@ jobs:
 
   deploy:
     name: Deploy to Kubernetes
-    needs: docker-publish
+    needs:
+      - docker-publish
+      - resolve-coordinates
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    env:
-      REGISTRY_URL_CONFIGURED: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || '' }}
-      REGISTRY_URL: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || format('ghcr.io/{0}', github.repository_owner) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve registry coordinates
-        id: registry
+      - name: Verify resolved coordinates
         shell: bash
         run: |
-          raw="${REGISTRY_URL:-}"
-          if [ -z "$raw" ]; then
-            echo 'REGISTRY_URL did not resolve. Configure REGISTRY_URL as a repository secret or variable, or allow the GHCR fallback.' >&2
-            exit 1
-          fi
+          set -euo pipefail
 
-          raw="${raw#http://}"
-          raw="${raw#https://}"
-          raw="${raw%/}"
-
-          if [ -z "$raw" ] || [ "$raw" = "/" ]; then
-            echo 'REGISTRY_URL is empty or invalid' >&2
-            exit 1
-          fi
-
-          registry_host="${raw%%/*}"
-          registry_path="${raw#${registry_host}}"
-          registry_path="${registry_path#/}"
-
-          if [ -z "$registry_host" ] || [[ "$registry_host" =~ [[:space:]] ]]; then
-            echo 'REGISTRY_URL is empty or invalid' >&2
-            exit 1
-          fi
-
-          if [ -n "$registry_path" ]; then
-            image_base="${registry_host}/${registry_path}/shop"
-          else
-            image_base="${registry_host}/shop"
-          fi
+          for value in \
+            "${{ needs.resolve-coordinates.outputs.registry_url }}" \
+            "${{ needs.resolve-coordinates.outputs.image_base }}" \
+            "${{ needs.resolve-coordinates.outputs.image_tag }}" \
+            "${{ needs.resolve-coordinates.outputs.branch_name }}"; do
+            if [ -z "$value" ] || [ "$value" = "null" ] || [ "$value" = "undefined" ]; then
+              echo "Coordinate resolution failed" >&2
+              exit 1
+            fi
+          done
 
           echo "Registry configured"
-          echo "REGISTRY_URL=${raw}" >> "$GITHUB_ENV"
-          echo "image_base=${image_base}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify resolved registry for deploy
-        shell: bash
-        run: |
-          if [ -z "${REGISTRY_URL:-}" ]; then
-            echo 'REGISTRY_URL is empty or invalid' >&2
-            exit 1
-          fi
-
-          echo "Registry configured"
-          echo "${{ steps.registry.outputs.image_base }}"
+          echo "${{ needs.resolve-coordinates.outputs.image_base }}"
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v5
@@ -263,7 +251,7 @@ jobs:
 
       - name: Deploy with Kustomize
         run: |
-          find infra/k8s/prod -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${{ steps.registry.outputs.image_base }}#g" {} +
+          find infra/k8s/prod -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${{ needs.resolve-coordinates.outputs.image_base }}#g" {} +
           KUBECONFIG=kubeconfig kubectl apply -k infra/k8s/prod
         shell: bash
 

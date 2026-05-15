@@ -1,0 +1,170 @@
+name: Resolve Coordinates
+description: Resolve and validate registry and repository coordinates for CI jobs
+
+inputs:
+  registry_url:
+    description: Optional registry URL from secret or variable
+    required: false
+    default: ''
+  repository:
+    description: Full repository slug
+    required: true
+  repository_owner:
+    description: Repository owner
+    required: true
+  repository_name:
+    description: Repository name
+    required: false
+    default: ''
+  sha:
+    description: Commit SHA
+    required: true
+  ref:
+    description: Git ref
+    required: true
+  head_ref:
+    description: Pull request head ref
+    required: false
+    default: ''
+  event_name:
+    description: Triggering event name
+    required: true
+
+outputs:
+  registry_url:
+    description: Normalized registry URL
+    value: ${{ steps.resolve.outputs.registry_url }}
+  registry_host:
+    description: Registry host
+    value: ${{ steps.resolve.outputs.registry_host }}
+  registry_path:
+    description: Registry path
+    value: ${{ steps.resolve.outputs.registry_path }}
+  repository_owner:
+    description: Normalized repository owner
+    value: ${{ steps.resolve.outputs.repository_owner }}
+  repository_name:
+    description: Repository name
+    value: ${{ steps.resolve.outputs.repository_name }}
+  image_base:
+    description: Base image repository path
+    value: ${{ steps.resolve.outputs.image_base }}
+  image_tag:
+    description: Image tag
+    value: ${{ steps.resolve.outputs.image_tag }}
+  short_sha:
+    description: Short commit SHA
+    value: ${{ steps.resolve.outputs.short_sha }}
+  branch_name:
+    description: Branch name
+    value: ${{ steps.resolve.outputs.branch_name }}
+  registry_source:
+    description: Whether registry came from configured input or fallback
+    value: ${{ steps.resolve.outputs.registry_source }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        INPUT_REGISTRY_URL: ${{ inputs.registry_url }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_REPOSITORY_OWNER: ${{ inputs.repository_owner }}
+        INPUT_REPOSITORY_NAME: ${{ inputs.repository_name }}
+        INPUT_SHA: ${{ inputs.sha }}
+        INPUT_REF: ${{ inputs.ref }}
+        INPUT_HEAD_REF: ${{ inputs.head_ref }}
+        INPUT_EVENT_NAME: ${{ inputs.event_name }}
+      run: |
+        set -euo pipefail
+
+        raw_registry="${INPUT_REGISTRY_URL:-}"
+        repository="${INPUT_REPOSITORY:-}"
+        repository_owner="${INPUT_REPOSITORY_OWNER:-}"
+        repository_name="${INPUT_REPOSITORY_NAME:-}"
+        commit_sha="${INPUT_SHA:-}"
+        git_ref="${INPUT_REF:-}"
+        head_ref="${INPUT_HEAD_REF:-}"
+        event_name="${INPUT_EVENT_NAME:-}"
+
+        if [ -z "$repository_owner" ]; then
+          repository_owner="${repository%%/*}"
+        fi
+        repository_owner="${repository_owner,,}"
+
+        if [ -z "$repository_name" ]; then
+          repository_name="${repository#*/}"
+        fi
+
+        if [ -z "$repository_owner" ] || [ -z "$repository_name" ]; then
+          echo "Repository coordinates are invalid" >&2
+          exit 1
+        fi
+
+        if [ -z "$raw_registry" ]; then
+          raw_registry="ghcr.io/${repository_owner}"
+          registry_source="fallback"
+        else
+          registry_source="configured"
+        fi
+
+        raw_registry="${raw_registry#http://}"
+        raw_registry="${raw_registry#https://}"
+        raw_registry="${raw_registry%/}"
+
+        if [ -z "$raw_registry" ] || [ "$raw_registry" = "/" ]; then
+          echo "REGISTRY_URL is empty or invalid" >&2
+          exit 1
+        fi
+
+        registry_host="${raw_registry%%/*}"
+        registry_path="${raw_registry#${registry_host}}"
+        registry_path="${registry_path#/}"
+
+        if [ -z "$registry_host" ] || [[ "$registry_host" =~ [[:space:]] ]]; then
+          echo "REGISTRY_URL is empty or invalid" >&2
+          exit 1
+        fi
+
+        if [ -n "$registry_path" ]; then
+          image_base="${registry_host}/${registry_path}/shop"
+        else
+          image_base="${registry_host}/shop"
+        fi
+
+        if [ -z "$commit_sha" ]; then
+          echo "Commit SHA is empty or invalid" >&2
+          exit 1
+        fi
+        short_sha="${commit_sha:0:7}"
+        image_tag="$commit_sha"
+
+        branch_name="${head_ref:-}"
+        if [ -z "$branch_name" ]; then
+          branch_name="${git_ref#refs/heads/}"
+          branch_name="${branch_name#refs/tags/}"
+        fi
+
+        if [ -z "$branch_name" ] || [ "$branch_name" = "$git_ref" ]; then
+          branch_name="detached-${short_sha}"
+        fi
+
+        if [ -z "$event_name" ]; then
+          echo "Event name is empty or invalid" >&2
+          exit 1
+        fi
+
+        echo "Registry configured"
+        echo "Repository configured"
+        echo "Git reference configured"
+        echo "registry_url=${raw_registry}" >> "$GITHUB_OUTPUT"
+        echo "registry_host=${registry_host}" >> "$GITHUB_OUTPUT"
+        echo "registry_path=${registry_path}" >> "$GITHUB_OUTPUT"
+        echo "repository_owner=${repository_owner}" >> "$GITHUB_OUTPUT"
+        echo "repository_name=${repository_name}" >> "$GITHUB_OUTPUT"
+        echo "image_base=${image_base}" >> "$GITHUB_OUTPUT"
+        echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+        echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+        echo "branch_name=${branch_name}" >> "$GITHUB_OUTPUT"
+        echo "registry_source=${registry_source}" >> "$GITHUB_OUTPUT"
