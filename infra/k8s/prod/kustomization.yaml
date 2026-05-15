@@ -7,6 +7,26 @@ resources:
   - enterprise-ops.yaml
   - ../base/grafana
 
+images:
+  - name: ghcr.io/shivanshuyadav921/shop/auth-service
+    newTag: latest
+  - name: ghcr.io/shivanshuyadav921/shop/invoice-service
+    newTag: latest
+  - name: ghcr.io/shivanshuyadav921/shop/payment-service
+    newTag: latest
+  - name: ghcr.io/shivanshuyadav921/shop/wallet-service
+    newTag: latest
+  - name: ghcr.io/shivanshuyadav921/shop/fraud-service
+    newTag: latest
+  - name: ghcr.io/shivanshuyadav921/shop/ledger-service
+    newTag: latest
+  - name: ghcr.io/shivanshuyadav921/shop/compliance-service
+    newTag: latest
+  - name: ghcr.io/shivanshuyadav921/shop/analytics-service
+    newTag: latest
+  - name: ghcr.io/shivanshuyadav921/shop/audit-service
+    newTag: latest
+
 configMapGenerator:
   - name: shop-platform-config
     literals:

@@ -533,7 +533,7 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: REPLACE_WITH_REGISTRY/shop/auth-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/auth-service:latest
           ports:
             - containerPort: 3000
           env:
@@ -607,7 +607,7 @@ spec:
     spec:
       containers:
         - name: invoice-service
-          image: REPLACE_WITH_REGISTRY/shop/invoice-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/invoice-service:latest
           ports:
             - containerPort: 3001
           env:
@@ -664,7 +664,7 @@ spec:
     spec:
       containers:
         - name: payment-service
-          image: REPLACE_WITH_REGISTRY/shop/payment-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/payment-service:latest
           ports:
             - containerPort: 3002
           env:
@@ -733,7 +733,7 @@ spec:
     spec:
       containers:
         - name: wallet-service
-          image: REPLACE_WITH_REGISTRY/shop/wallet-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/wallet-service:latest
           ports:
             - containerPort: 3003
           env:
@@ -790,7 +790,7 @@ spec:
     spec:
       containers:
         - name: fraud-service
-          image: REPLACE_WITH_REGISTRY/shop/fraud-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/fraud-service:latest
           ports:
             - containerPort: 3004
           env:
@@ -847,7 +847,7 @@ spec:
     spec:
       containers:
         - name: ledger-service
-          image: REPLACE_WITH_REGISTRY/shop/ledger-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/ledger-service:latest
           ports:
             - containerPort: 3006
           env:
@@ -906,7 +906,7 @@ spec:
     spec:
       containers:
         - name: compliance-service
-          image: REPLACE_WITH_REGISTRY/shop/compliance-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/compliance-service:latest
           ports:
             - containerPort: 3005
           env:
@@ -995,7 +995,7 @@ spec:
     spec:
       containers:
         - name: analytics-service
-          image: REPLACE_WITH_REGISTRY/shop/analytics-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/analytics-service:latest
           ports:
             - containerPort: 3010
           env:
@@ -1056,7 +1056,7 @@ spec:
     spec:
       containers:
         - name: audit-service
-          image: REPLACE_WITH_REGISTRY/shop/audit-service:latest
+          image: ghcr.io/shivanshuyadav921/shop/audit-service:latest
           ports:
             - containerPort: 3007
           env:

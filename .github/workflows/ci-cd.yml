@@ -476,12 +476,31 @@ jobs:
         run: |
           set -euo pipefail
           pwd
+          manifest_root="$(mktemp -d)"
+          cp -R infra/k8s/. "$manifest_root/"
+
+          deploy_overlay="${manifest_root}/deploy"
+          mkdir -p "$deploy_overlay"
+          {
+            echo "apiVersion: kustomize.config.k8s.io/v1beta1"
+            echo "kind: Kustomization"
+            echo "resources:"
+            echo "  - ../prod"
+            echo "images:"
+            for service in auth-service invoice-service payment-service wallet-service fraud-service ledger-service compliance-service analytics-service audit-service; do
+              echo "  - name: ghcr.io/shivanshuyadav921/shop/${service}"
+              echo "    newName: ${IMAGE_BASE}/${service}"
+              echo "    newTag: ${IMAGE_TAG}"
+            done
+          } > "${deploy_overlay}/kustomization.yaml"
+
           rendered_manifest="${RUNNER_TEMP}/shop-platform.rendered.yaml"
 
-          kubectl kustomize ./infra/k8s/prod > "$rendered_manifest"
+          kubectl kustomize "$deploy_overlay" > "$rendered_manifest"
 
           kubectl apply --dry-run=client --validate=false -f "$rendered_manifest" >/dev/null
 
+          echo "manifest_root=${manifest_root}" >> "$GITHUB_OUTPUT"
           echo "rendered_manifest=${rendered_manifest}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy with Kustomize
