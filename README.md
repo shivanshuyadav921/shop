@@ -1,228 +1,230 @@
-# Enterprise Fintech Platform - Architecture Overview
+# Shop
 
-## Platform Architecture
+Enterprise fintech platform implemented as a TypeScript monorepo. The repository combines shared payment-domain libraries, service packages, local infrastructure, Kubernetes manifests, and a GitHub Actions CI/CD pipeline.
 
-This is a **production-grade, enterprise-scale payment processing platform** designed for 10 million transactions per day with world-class security, reliability, and compliance.
+## Overview
 
-### Core Principles
+Shop is structured around a set of reusable domain libraries and independently deployable services:
 
-1. **Zero Trust Security** - All services encrypted, no implicit trust
-2. **Exactly-Once Semantics** - No duplicate or lost transactions
-3. **Immutable Audit Trail** - Every action logged and verified
-4. **Financial Integrity** - Double-entry accounting, hash chaining
-5. **Resilience by Design** - Circuit breakers, saga patterns, automatic failover
-6. **Observability First** - Comprehensive logging, tracing, metrics
+- secure payment processing
+- authentication and identity controls
+- immutable ledger and reconciliation workflows
+- fraud detection and risk analysis
+- compliance and audit capabilities
+- wallet, invoice, analytics, and operational services
 
-## Repository Structure
+The codebase includes both local development infrastructure and production deployment assets, so it can be worked on as a single repository from library code through Kubernetes rollout.
 
-```
+## Monorepo Structure
+
+```text
 shop/
-├── libs/                          # Shared enterprise libraries
-│   ├── crypto-vault/              # HSM, tokenization, secrets rotation
-│   ├── distributed-transactions/  # Saga, idempotency, locks, circuit breaker
-│   ├── ledger-core/               # Immutable accounting ledger
-│   ├── fraud-detection/           # Device fingerprinting, risk scoring
-│   └── compliance-engine/         # KYC, AML, audit vault, consent
-├── services/                      # Microservices
-│   ├── payment-service/           # Primary payment processor
-│   ├── auth-service/              # User authentication, device verification
-│   ├── ledger-service/            # Accounting settlement
-│   ├── fraud-service/             # Fraud detection & prevention
-│   ├── compliance-service/        # Regulatory compliance
-│   ├── wallet-service/            # Customer wallet management
-│   ├── invoice-service/           # Invoice generation
-│   ├── analytics-service/         # Business analytics
-│   └── audit-service/             # Audit trail service
-├── infra/                         # Infrastructure
-│   ├── k8s/                       # Kubernetes manifests
-│   │   ├── base/                  # Base configurations
-│   │   ├── observability/         # Monitoring stack
-│   │   ├── prod/                  # Production deployments
-│   │   └── overlays/              # Environment-specific overlays
-│   ├── backups/                   # Disaster recovery scripts
-│   ├── chaos/                     # Chaos engineering tests
-│   ├── logging/                   # Log aggregation config
-│   ├── monitoring/                # Prometheus, AlertManager
-│   ├── grafana/                   # Dashboards
-│   └── docker-compose.yml         # Local development
-└── docs/                          # Documentation
-    ├── ARCHITECTURE-DECISIONS.md  # ADRs (10 key decisions)
-    ├── DEPLOYMENT-GUIDE.md        # Step-by-step deployment
-    ├── SCALABILITY-ARCHITECTURE.md # 10M TPS capacity planning
-    ├── INCIDENT-RESPONSE-RUNBOOKS.md # Emergency procedures
-    ├── OBSERVABILITY-GUIDE.md     # Logging, metrics, tracing
-    ├── SECURITY-POLICIES.md       # SOC2, PCI-DSS, NIST
-    ├── SERVICE-INTEGRATION-GUIDE.md # Library integration
-    └── PRE-FLIGHT-VALIDATION.md   # Deployment checklist
+|-- .github/
+|   |-- actions/
+|   `-- workflows/
+|-- docs/
+|-- infra/
+|   |-- backups/
+|   |-- chaos/
+|   |-- k8s/
+|   `-- docker-compose.yml
+|-- libs/
+|   |-- common-utils/
+|   |-- compliance-engine/
+|   |-- crypto-vault/
+|   |-- distributed-transactions/
+|   |-- fraud-detection/
+|   `-- ledger-core/
+|-- services/
+|   |-- analytics-service/
+|   |-- audit-service/
+|   |-- auth-service/
+|   |-- compliance-service/
+|   |-- fraud-service/
+|   |-- invoice-service/
+|   |-- ledger-service/
+|   |-- payment-service/
+|   `-- wallet-service/
+|-- Dockerfile
+|-- build-and-deploy.sh
+|-- package.json
+`-- README.md
 ```
 
-## Enterprise Libraries
+## Libraries
 
-### @shop/crypto-vault
-**Purpose:** HSM-based cryptographic operations, payment tokenization, zero-trust security
+- `libs/common-utils`: shared helpers and common application primitives
+- `libs/compliance-engine`: KYC, AML, consent, retention, and compliance workflows
+- `libs/crypto-vault`: tokenization, vaulting, and cryptographic helpers
+- `libs/distributed-transactions`: sagas, idempotency, retries, and resilience patterns
+- `libs/fraud-detection`: risk scoring and fraud-analysis components
+- `libs/ledger-core`: immutable ledger and accounting-oriented abstractions
 
-**Key Components:**
-- `HSMClient` - AWS KMS integration (non-exportable keys, signing)
-- `PaymentTokenizer` - PCI-DSS compliant card tokenization
-- `SecretsRotation` - Automatic 30-day key rotation with zero downtime
-- `EncryptedVault` - AES-256 encrypted storage with authentication
-- `KeyManager` - Key versioning, rotation tracking, expiration
-- `ZeroTrustAuth` - Device certificate pinning, challenge-response auth
+## Services
 
-### @shop/distributed-transactions
-**Purpose:** Distributed transaction patterns ensuring reliability and consistency
+- `services/payment-service`: payment orchestration and execution
+- `services/auth-service`: authentication and access controls
+- `services/ledger-service`: posting, balancing, and reconciliation
+- `services/wallet-service`: wallet and balance operations
+- `services/invoice-service`: invoice lifecycle management
+- `services/fraud-service`: fraud policy execution
+- `services/compliance-service`: compliance orchestration
+- `services/analytics-service`: reporting and analytics workflows
+- `services/audit-service`: audit evidence and traceability
 
-**Key Components:**
-- `SagaOrchestrator` - Choreography-based saga with compensating transactions
-- `IdempotencyManager` - Exactly-once semantics via request deduplication
-- `DistributedLock` - Redis-based locking with automatic expiration
-- `CircuitBreaker` - 3-state circuit for resilience (CLOSED/OPEN/HALF_OPEN)
-- `DeadLetterQueue` - Failed message capture with retry scheduling
-- `ProviderFailover` - Multi-provider management with health tracking
+## Technology
 
-### @shop/ledger-core
-**Purpose:** Immutable, append-only ledger with double-entry accounting
+- Node.js workspaces
+- TypeScript
+- Docker and Docker Buildx
+- Kubernetes with Kustomize
+- GitHub Actions
+- PostgreSQL, Redis, Kafka, Prometheus, Grafana, and Loki in the infrastructure layer
 
-**Key Components:**
-- `ImmutableLedger` - Hash-chained entries (tamper-evident)
-- `DoubleEntry` - Chart of accounts, transaction posting, trial balance
-- `HashChainedJournal` - Transaction audit trail with integrity verification
-- `Reconciler` - End-of-day settlement and reconciliation
+## Prerequisites
 
-### @shop/fraud-detection
-**Purpose:** Multi-layered fraud detection (device, behavioral, graph analysis)
+- Node.js `18+`
+- npm `9+`
+- Docker
+- `kubectl` for Kubernetes validation or operations
 
-**Key Components:**
-- `DeviceFingerprinter` - Device identification with fingerprinting
-- `BehaviorAnalyzer` - User behavior profiling and anomaly detection
-- `RiskScorer` - Composite risk scoring (0-100)
-- `FraudGraph` - Graph-based ring fraud detection (BFS clustering)
+## Quick Start
 
-### @shop/compliance-engine
-**Purpose:** Regulatory compliance (KYC, AML, audit, consent, retention)
+Install dependencies:
 
-**Key Components:**
-- `KYCManager` - 5-level KYC verification with expiration
-- `AMLChecker` - Sanctions & PEP screening with transaction monitoring
-- `AuditVault` - Immutable audit logs for compliance export
-- `ConsentManager` - GDPR/CCPA consent tracking
-- `RetentionPolicy` - Multi-jurisdiction data retention scheduling
-
-## Key Performance Metrics
-
-### Throughput
-- **Target:** 10 million transactions/day (115 TPS average)
-- **Peak:** 200 TPS (2x average)
-- **Burst:** 500 TPS (10x average)
-
-### Latency (P95)
-- **Payment processing:** < 500ms
-- **Ledger reconciliation:** < 2s per batch
-- **Fraud scoring:** < 100ms
-- **KYC/AML checks:** < 50ms
-
-### Availability
-- **Target SLA:** 99.99% uptime
-- **RTO:** < 1 hour
-- **RPO:** < 5 minutes
-- **Backup retention:** 90 days
-
-## Deployment Architecture
-
-### Blue-Green Deployments
-- **Blue:** Current production (3+ pods)
-- **Green:** New version staging (3+ pods)
-- **Traffic Switching:** Gradual canary deployment
-- **Rollback:** Instant if issues detected
-
-### High Availability
-- **Multi-zone:** Pods spread across availability zones
-- **Pod Disruption Budget:** Minimum 1 pod always available
-- **Health Checks:** Startup, liveness, readiness probes
-- **Auto-scaling:** 3 min, 20 target, 50 max replicas
-
-## Compliance & Security
-
-- ✅ **SOC 2 Type II:** Security, availability, processing integrity
-- ✅ **PCI DSS 4.0:** Payment card data security
-- ✅ **GDPR/CCPA:** Data privacy and retention
-- ✅ **NIST Framework:** Cybersecurity best practices
-- ✅ **mTLS:** Service-to-service encryption
-- ✅ **HSM:** Hardware security module for key management
-
-## Getting Started
-
-### Local Development
 ```bash
-# Clone and install
-git clone <repo>
-cd shop
 npm install
+```
 
-# Start services locally
-docker-compose -f infra/docker-compose.yml up -d
+Build the workspace:
 
-# Run tests
+```bash
+npm run build
+```
+
+Run tests:
+
+```bash
 npm test
+```
 
-# Start development servers
+Start local infrastructure:
+
+```bash
+docker compose -f infra/docker-compose.yml up -d
+```
+
+Validate compose files:
+
+```bash
+docker compose -f infra/docker-compose.yml config
+docker compose -f infra/docker-compose.prod.yml config
+```
+
+## Development Commands
+
+```bash
+npm run build
+npm test
+npm run lint
+npm run format
 npm run dev
 ```
 
-### Production Deployment
+## Operational Commands
+
 ```bash
-# Build and push Docker images
-docker build -t shop-payment-service:v1.0.0 services/payment-service
-docker push docker.io/shop-payment-service:v1.0.0
-
-# Deploy to production
-bash build-and-deploy.sh 1.0.0 production
-
-# Validate deployment
 npm run healthcheck
-```
-
-### Operational Commands
-```bash
-# View logs
 npm run logs
-
-# Check system status
 npm run status
-
-# Run full backup
 npm run backup:full
-
-# Restore from backup
-npm run restore <BACKUP_ID>
-
-# Chaos engineering test
-npm run chaos:test latency payment-service
-
-# Verify ledger integrity
+npm run restore
+npm run chaos:test
 npm run verify:integrity
 ```
 
+## Docker Build Model
+
+The repository uses a single root Dockerfile. Images are built by passing the target service name as a build argument.
+
+Example:
+
+```bash
+docker build --build-arg SERVICE_NAME=payment-service -t shop/payment-service:local .
+```
+
+## Kubernetes Deployment
+
+Production manifests live in `infra/k8s/prod`. The deployment flow:
+
+1. resolves the target registry coordinates
+2. builds and publishes service images
+3. renders manifests with resolved image references
+4. validates kubeconfig and cluster access
+5. applies manifests with Kustomize
+6. waits for rollout completion
+
+Render manifests locally:
+
+```bash
+kubectl kustomize infra/k8s/prod
+```
+
+## CI/CD
+
+The pipeline is defined in `.github/workflows/ci-cd.yml`.
+
+It performs:
+
+1. checkout and Node setup
+2. dependency installation and workspace build
+3. Kubernetes manifest validation
+4. Docker Compose validation
+5. registry coordinate resolution
+6. matrix image build and publish
+7. Kubernetes deployment
+
+### Required GitHub Secrets
+
+- `REGISTRY_URL`
+- `KUBE_CONFIG_DATA`
+- `REGISTRY_USERNAME` for registries that do not use GitHub token auth
+- `REGISTRY_PASSWORD` for registries that do not use GitHub token auth
+
+### Registry Formats
+
+Supported forms include:
+
+- `ghcr.io/org`
+- `docker.io/org`
+- `registry.company.com/team`
+
+If `REGISTRY_URL` is not configured, the workflow falls back to:
+
+```text
+ghcr.io/<repository_owner>
+```
+
+### Kubeconfig Contract
+
+`KUBE_CONFIG_DATA` must contain base64-encoded kubeconfig content. The workflow decodes it, checks contexts, validates the active context, verifies cluster access, and only then applies manifests.
+
 ## Documentation
 
-- [Architecture Decision Records](docs/ARCHITECTURE-DECISIONS.md) - 10 key architectural decisions
-- [Deployment Guide](docs/DEPLOYMENT-GUIDE.md) - Step-by-step production deployment
-- [Scalability Architecture](docs/SCALABILITY-ARCHITECTURE.md) - 10M TPS capacity planning
-- [Incident Response Runbooks](docs/INCIDENT-RESPONSE-RUNBOOKS.md) - Emergency procedures
-- [Observability Guide](docs/OBSERVABILITY-GUIDE.md) - Logging, metrics, tracing
-- [Security Policies](docs/SECURITY-POLICIES.md) - SOC2, PCI-DSS, NIST compliance
-- [Service Integration Guide](docs/SERVICE-INTEGRATION-GUIDE.md) - Library usage patterns
-- [Pre-Flight Validation](docs/PRE-FLIGHT-VALIDATION.md) - Deployment checklist
+- [docs/ARCHITECTURE-DECISIONS.md](docs/ARCHITECTURE-DECISIONS.md)
+- [docs/architecture.md](docs/architecture.md)
+- [docs/DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md)
+- [docs/enterprise-deployment.md](docs/enterprise-deployment.md)
+- [docs/OBSERVABILITY-GUIDE.md](docs/OBSERVABILITY-GUIDE.md)
+- [docs/INCIDENT-RESPONSE-RUNBOOKS.md](docs/INCIDENT-RESPONSE-RUNBOOKS.md)
+- [docs/PRE-FLIGHT-VALIDATION.md](docs/PRE-FLIGHT-VALIDATION.md)
+- [docs/SCALABILITY-ARCHITECTURE.md](docs/SCALABILITY-ARCHITECTURE.md)
+- [docs/SECURITY-POLICIES.md](docs/SECURITY-POLICIES.md)
+- [docs/security-best-practices.md](docs/security-best-practices.md)
+- [docs/SERVICE-INTEGRATION-GUIDE.md](docs/SERVICE-INTEGRATION-GUIDE.md)
 
-## Support
+## Notes
 
-- **On-call:** PagerDuty integration
-- **Documentation:** Full ADRs, runbooks, deployment guides  
-- **Monitoring:** Comprehensive dashboards and alerting
-- **Testing:** Load testing for 10M TPS, chaos engineering
-
----
-
-**Version:** 1.0.0  
-**Status:** Production-Ready ✓  
-**Last Updated:** January 2024
+- The repository is managed as a root workspace, so most developer commands should be run from the repository root.
+- Some operational scripts assume a Unix-like shell environment.
+- Production deployment depends on valid GitHub secrets and reachable Kubernetes credentials.
