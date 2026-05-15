@@ -88,7 +88,7 @@ export class ConsentManager {
     const userConsents = this.consents.get(userId);
     if (!userConsents) return null;
 
-    const activeConsent = userConsents.find((c) => c.consentType === consentType && c.granted);
+    const activeConsent = userConsents.find((c: UserConsent) => c.consentType === consentType && c.granted);
     if (!activeConsent) return null;
 
     activeConsent.granted = false;
@@ -104,7 +104,7 @@ export class ConsentManager {
    */
   hasConsent(userId: string, consentType: ConsentType): boolean {
     const userConsents = this.consents.get(userId) || [];
-    const activeConsent = userConsents.find((c) => c.consentType === consentType && c.granted);
+    const activeConsent = userConsents.find((c: UserConsent) => c.consentType === consentType && c.granted);
     return !!activeConsent;
   }
 
@@ -118,7 +118,7 @@ export class ConsentManager {
     const status: any = {};
 
     for (const type of Object.values(ConsentType)) {
-      status[type] = userConsents.some((c) => c.consentType === type && c.granted);
+      status[type] = userConsents.some((c: UserConsent) => c.consentType === type && c.granted);
     }
 
     return status;

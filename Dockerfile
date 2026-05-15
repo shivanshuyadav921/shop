@@ -32,8 +32,7 @@ COPY tsconfig.json ./
 COPY libs ./libs
 COPY services ./services
 RUN test -n "$SERVICE_NAME"
-RUN npm run build --workspace @shop/common-utils
-RUN npm run build --workspace @shop/${SERVICE_NAME}
+RUN npm run build --workspaces --if-present
 
 FROM base AS prod-deps
 COPY package.json package-lock.json ./
@@ -65,7 +64,7 @@ COPY --from=prod-deps /app/package.json ./package.json
 COPY --from=prod-deps /app/package-lock.json ./package-lock.json
 COPY --from=prod-deps /app/libs ./libs
 COPY --from=prod-deps /app/services ./services
-COPY --from=builder /app/libs/common-utils/dist ./libs/common-utils/dist
+COPY --from=builder /app/libs ./libs
 COPY --from=builder /app/services/${SERVICE_NAME}/dist ./services/${SERVICE_NAME}/dist
 USER shop
 EXPOSE 3000
