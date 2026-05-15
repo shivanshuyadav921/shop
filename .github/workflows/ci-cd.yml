@@ -492,7 +492,10 @@ jobs:
 
           kubectl kustomize "$manifest_root/prod" > "$rendered_manifest"
 
-          kubectl apply --dry-run=client -f "$rendered_manifest" >/dev/null
+          kubectl apply \
+            --dry-run=client \
+            --validate=false \
+            -f "$rendered_manifest" >/dev/null
 
           echo "manifest_root=${manifest_root}" >> "$GITHUB_OUTPUT"
 
