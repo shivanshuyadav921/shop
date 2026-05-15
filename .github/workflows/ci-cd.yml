@@ -476,28 +476,11 @@ jobs:
         run: |
           set -euo pipefail
           pwd
-          manifest_root="$(mktemp -d)"
-
-          cp -R infra/k8s/. "$manifest_root/"
-
-          find "$manifest_root" -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${REGISTRY_URL}#g" {} +
-
-          for service in auth-service invoice-service payment-service wallet-service fraud-service ledger-service compliance-service analytics-service audit-service; do
-            find "$manifest_root" -type f -name '*.yaml' -exec sed -i "s#${REGISTRY_URL}/shop/${service}:latest#${IMAGE_BASE}/${service}:${IMAGE_TAG}#g" {} +
-          done
-
-          find "$manifest_root" -type f -name '*.yaml' -exec sed -i "s#shop-payment-service:v1.0.0#${IMAGE_BASE}/payment-service:${IMAGE_TAG}#g" {} +
-
           rendered_manifest="${RUNNER_TEMP}/shop-platform.rendered.yaml"
 
-          kubectl kustomize "$manifest_root/prod" > "$rendered_manifest"
+          kubectl kustomize ./infra/k8s/prod > "$rendered_manifest"
 
-          kubectl apply \
-            --dry-run=client \
-            --validate=false \
-            -f "$rendered_manifest" >/dev/null
-
-          echo "manifest_root=${manifest_root}" >> "$GITHUB_OUTPUT"
+          kubectl apply --dry-run=client --validate=false -f "$rendered_manifest" >/dev/null
 
           echo "rendered_manifest=${rendered_manifest}" >> "$GITHUB_OUTPUT"
 
