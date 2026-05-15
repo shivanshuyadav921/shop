@@ -438,7 +438,6 @@ jobs:
           echo "Remote Kubernetes cluster detected. Deployment proceeding."
 
       - name: Verify Kubernetes cluster
-        if: steps.deploy-target.outputs.skip_deploy != 'true'
         run: |
           set -euo pipefail
 
