@@ -410,7 +410,7 @@ jobs:
           context_lc="$(printf '%s' "${current_context}" | tr '[:upper:]' '[:lower:]')"
           cluster_lc="$(printf '%s' "${cluster_name}" | tr '[:upper:]' '[:lower:]')"
 
-          if [[ "${server_lc}" == *"127.0.0.1"* ]] || [[ "${server_lc}" == *"localhost"* ]] || [[ "${context_lc}" == *"docker-desktop"* ]] || [[ "${cluster_lc}" == *"docker-desktop"* ]]; then
+          if [[ "${server_lc}" == *"127.0.0.1"* ]] || [[ "${server_lc}" == *"localhost"* ]] || [[ "${context_lc}" == *"docker-desktop"* ]] || [[ "${context_lc}" == *"kind"* ]] || [[ "${context_lc}" == *"minikube"* ]] || [[ "${cluster_lc}" == *"docker-desktop"* ]] || [[ "${cluster_lc}" == *"kind"* ]] || [[ "${cluster_lc}" == *"minikube"* ]]; then
             skip_deploy="true"
           fi
 
@@ -424,7 +424,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Local Kubernetes cluster detected. Skipping remote CI deployment."
+          echo "Local Kubernetes cluster detected. GitHub-hosted runners cannot access localhost clusters. Skipping remote deployment."
+          echo "Local Kubernetes cluster detected. Remote CI deployment skipped."
+
+      - name: Confirm remote Kubernetes deployment
+        if: steps.deploy-target.outputs.skip_deploy != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Remote Kubernetes cluster detected. Deployment proceeding."
 
       - name: Verify Kubernetes context
         if: steps.deploy-target.outputs.skip_deploy != 'true'
