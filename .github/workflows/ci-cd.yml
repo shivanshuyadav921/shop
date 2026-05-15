@@ -267,12 +267,62 @@ jobs:
       - name: Decode kubeconfig
         shell: bash
         run: |
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > "$KUBECONFIG"
+          set -euo pipefail
+
+          if [ -z "${{ secrets.KUBE_CONFIG_DATA }}" ]; then
+            echo "KUBE_CONFIG_DATA is empty or unset" >&2
+            exit 1
+          fi
+
+          printf '%s' "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > "$KUBECONFIG"
+          chmod 600 "$KUBECONFIG"
+
+      - name: Validate kubeconfig
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cluster_count="$(kubectl config view -o jsonpath='{.clusters[*].name}' | wc -w | tr -d ' ')"
+          context_count="$(kubectl config view -o jsonpath='{.contexts[*].name}' | wc -w | tr -d ' ')"
+          user_count="$(kubectl config view -o jsonpath='{.users[*].name}' | wc -w | tr -d ' ')"
+
+          if [ "${cluster_count}" -eq 0 ]; then
+            echo "Decoded kubeconfig contains no clusters" >&2
+            exit 1
+          fi
+
+          if [ "${context_count}" -eq 0 ]; then
+            echo "Decoded kubeconfig contains no contexts" >&2
+            exit 1
+          fi
+
+          if [ "${user_count}" -eq 0 ]; then
+            echo "Decoded kubeconfig contains no users" >&2
+            exit 1
+          fi
+
+          current_context="$(kubectl config current-context 2>/dev/null || true)"
+
+          if [ -z "${current_context}" ]; then
+            if [ "${context_count}" -eq 1 ]; then
+              current_context="$(kubectl config get-contexts -o name | head -n 1)"
+              if [ -z "${current_context}" ]; then
+                echo "Decoded kubeconfig has one context but it could not be resolved" >&2
+                exit 1
+              fi
+              kubectl config use-context "${current_context}" >/dev/null
+            else
+              echo "Decoded kubeconfig is missing current-context and defines multiple contexts" >&2
+              exit 1
+            fi
+          fi
 
       - name: Verify Kubernetes context
         shell: bash
         run: |
           set -euo pipefail
+          kubectl config view >/dev/null
+          kubectl config get-contexts
           kubectl config current-context
           kubectl cluster-info
 
