@@ -185,11 +185,15 @@ jobs:
 
       - name: Verify resolved coordinates
         shell: bash
+        env:
+          REGISTRY_URL: ${{ needs.resolve-coordinates.outputs.registry_url }}
         run: |
           set -euo pipefail
 
+          test -n "${REGISTRY_URL:-}"
+
           for value in \
-            "${{ needs.resolve-coordinates.outputs.registry_url }}" \
+            "${REGISTRY_URL}" \
             "${{ needs.resolve-coordinates.outputs.registry_host }}" \
             "${{ needs.resolve-coordinates.outputs.image_base }}" \
             "${{ needs.resolve-coordinates.outputs.image_tag }}"; do
@@ -273,11 +277,15 @@ jobs:
 
       - name: Verify resolved coordinates
         shell: bash
+        env:
+          REGISTRY_URL: ${{ needs.resolve-coordinates.outputs.registry_url }}
         run: |
           set -euo pipefail
 
+          test -n "${REGISTRY_URL:-}"
+
           for value in \
-            "${{ needs.resolve-coordinates.outputs.registry_url }}" \
+            "${REGISTRY_URL}" \
             "${{ needs.resolve-coordinates.outputs.image_base }}" \
             "${{ needs.resolve-coordinates.outputs.image_tag }}" \
             "${{ needs.resolve-coordinates.outputs.branch_name }}"; do
@@ -295,29 +303,32 @@ jobs:
         with:
           version: ${{ env.KUBECTL_VERSION }}
 
-      - name: Resolve Kubernetes credentials
-        id: kube-config
+      - name: Prepare deployment environment
         shell: bash
         env:
-          KUBE_CONFIG_DATA_SECRET: ${{ secrets.KUBE_CONFIG_DATA }}
-        run: |
-          set -euo pipefail
-
-          kube_config_data="${KUBE_CONFIG_DATA_SECRET:-}"
-          if [ -z "$kube_config_data" ]; then
-            echo "KUBE_CONFIG_DATA is empty or unavailable in the deploy job scope" >&2
-            exit 1
-          fi
-
-          echo "::add-mask::$kube_config_data"
-          echo "configured=true" >> "$GITHUB_OUTPUT"
-
-      - name: Verify Kubernetes credentials
-        shell: bash
-        env:
+          REGISTRY_URL: ${{ needs.resolve-coordinates.outputs.registry_url }}
           KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
         run: |
           set -euo pipefail
+
+          test -n "${REGISTRY_URL:-}"
+          test -n "${KUBE_CONFIG_DATA:-}"
+
+          echo "::add-mask::$KUBE_CONFIG_DATA"
+          {
+            echo "REGISTRY_URL=${REGISTRY_URL}"
+            echo "KUBECONFIG=${GITHUB_WORKSPACE}/kubeconfig"
+            echo "KUBE_CONFIG_DATA<<__KUBE_CONFIG_DATA__"
+            echo "${KUBE_CONFIG_DATA}"
+            echo "__KUBE_CONFIG_DATA__"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify Kubernetes credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "${REGISTRY_URL:-}"
 
           if [ -z "${KUBE_CONFIG_DATA:-}" ]; then
             echo "KUBE_CONFIG_DATA is empty or unavailable in the deploy job scope" >&2
@@ -328,9 +339,6 @@ jobs:
 
       - name: Decode kubeconfig
         shell: bash
-        env:
-          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
-          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
           set -euo pipefail
 
@@ -344,8 +352,6 @@ jobs:
 
       - name: Validate kubeconfig
         shell: bash
-        env:
-          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
           set -euo pipefail
 
@@ -386,8 +392,6 @@ jobs:
 
       - name: Verify Kubernetes context
         shell: bash
-        env:
-          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
           set -euo pipefail
           kubectl config view >/dev/null
@@ -399,7 +403,6 @@ jobs:
         id: manifests
         shell: bash
         env:
-          REGISTRY_URL: ${{ needs.resolve-coordinates.outputs.registry_url }}
           IMAGE_BASE: ${{ needs.resolve-coordinates.outputs.image_base }}
           IMAGE_TAG: ${{ needs.resolve-coordinates.outputs.image_tag }}
         run: |
@@ -422,16 +425,12 @@ jobs:
 
       - name: Deploy with Kustomize
         shell: bash
-        env:
-          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
           set -euo pipefail
           kubectl apply -k "${{ steps.manifests.outputs.manifest_dir }}"
 
       - name: Verify rollout status
         shell: bash
-        env:
-          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
           set -euo pipefail
           kubectl rollout status deployment/auth-service -n shop-fintech --timeout=180s
