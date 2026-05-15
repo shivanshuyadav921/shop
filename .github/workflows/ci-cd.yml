@@ -437,14 +437,32 @@ jobs:
           set -euo pipefail
           echo "Remote Kubernetes cluster detected. Deployment proceeding."
 
-      - name: Verify Kubernetes context
+      - name: Verify Kubernetes cluster
         if: steps.deploy-target.outputs.skip_deploy != 'true'
-        shell: bash
         run: |
           set -euo pipefail
-          kubectl config view >/dev/null
+
           kubectl config get-contexts
-          kubectl config current-context
+
+          CONTEXT=$(kubectl config current-context)
+          echo "Current context: $CONTEXT"
+
+          SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+          echo "Cluster server: $SERVER"
+
+          if [[ "$CONTEXT" == *"docker-desktop"* ]] || \
+             [[ "$CONTEXT" == *"kind"* ]] || \
+             [[ "$CONTEXT" == *"minikube"* ]] || \
+             [[ "$SERVER" == *"127.0.0.1"* ]] || \
+             [[ "$SERVER" == *"localhost"* ]]; then
+
+            echo "Local Kubernetes cluster detected."
+            echo "GitHub-hosted runners cannot access localhost clusters."
+            echo "Skipping remote deployment."
+            exit 0
+          fi
+
+          echo "Remote Kubernetes cluster detected."
           kubectl cluster-info
 
       - name: Render deployment manifests
