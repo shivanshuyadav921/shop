@@ -390,7 +390,44 @@ jobs:
             fi
           fi
 
+      - name: Detect deployment target
+        id: deploy-target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_context="$(kubectl config current-context)"
+          cluster_name="$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')"
+          server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+
+          if [ -z "${cluster_name}" ] || [ -z "${server}" ]; then
+            echo "Decoded kubeconfig is missing active cluster metadata" >&2
+            exit 1
+          fi
+
+          skip_deploy="false"
+          server_lc="$(printf '%s' "${server}" | tr '[:upper:]' '[:lower:]')"
+          context_lc="$(printf '%s' "${current_context}" | tr '[:upper:]' '[:lower:]')"
+          cluster_lc="$(printf '%s' "${cluster_name}" | tr '[:upper:]' '[:lower:]')"
+
+          if [[ "${server_lc}" == *"127.0.0.1"* ]] || [[ "${server_lc}" == *"localhost"* ]] || [[ "${context_lc}" == *"docker-desktop"* ]] || [[ "${cluster_lc}" == *"docker-desktop"* ]]; then
+            skip_deploy="true"
+          fi
+
+          echo "current_context=${current_context}" >> "$GITHUB_OUTPUT"
+          echo "cluster_name=${cluster_name}" >> "$GITHUB_OUTPUT"
+          echo "server=${server}" >> "$GITHUB_OUTPUT"
+          echo "skip_deploy=${skip_deploy}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip local Kubernetes deployment
+        if: steps.deploy-target.outputs.skip_deploy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Local Kubernetes cluster detected. Skipping remote CI deployment."
+
       - name: Verify Kubernetes context
+        if: steps.deploy-target.outputs.skip_deploy != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -424,12 +461,14 @@ jobs:
           echo "rendered_manifest=${rendered_manifest}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy with Kustomize
+        if: steps.deploy-target.outputs.skip_deploy != 'true'
         shell: bash
         run: |
           set -euo pipefail
           kubectl apply -k "${{ steps.manifests.outputs.manifest_dir }}"
 
       - name: Verify rollout status
+        if: steps.deploy-target.outputs.skip_deploy != 'true'
         shell: bash
         run: |
           set -euo pipefail
