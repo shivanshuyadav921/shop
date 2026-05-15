@@ -53,9 +53,11 @@ jobs:
 
       - name: Render Kubernetes manifests
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          kubectl kustomize infra/k8s/prod > /tmp/shop-platform.yaml
+          pwd
+          kubectl kustomize ./infra/k8s/prod > /tmp/shop-platform.yaml
 
       - name: Validate Kubernetes manifests offline
         shell: bash
@@ -467,25 +469,24 @@ jobs:
       - name: Render deployment manifests
         id: manifests
         shell: bash
+        working-directory: ${{ github.workspace }}
         env:
           IMAGE_BASE: ${{ needs.resolve-coordinates.outputs.image_base }}
           IMAGE_TAG: ${{ needs.resolve-coordinates.outputs.image_tag }}
         run: |
           set -euo pipefail
-          manifest_dir="$(mktemp -d)"
-          cp -R infra/k8s/prod/. "$manifest_dir/"
-          find "$manifest_dir" -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${REGISTRY_URL}#g" {} +
+          pwd
+          rendered_manifest="${RUNNER_TEMP}/shop-platform.rendered.yaml"
+          kubectl kustomize ./infra/k8s/prod > "$rendered_manifest"
+          sed -i "s#REPLACE_WITH_REGISTRY#${REGISTRY_URL}#g" "$rendered_manifest"
 
           for service in auth-service invoice-service payment-service wallet-service fraud-service ledger-service compliance-service analytics-service audit-service; do
-            find "$manifest_dir" -type f -name '*.yaml' -exec sed -i "s#${REGISTRY_URL}/shop/${service}:latest#${IMAGE_BASE}/${service}:${IMAGE_TAG}#g" {} +
+            sed -i "s#${REGISTRY_URL}/shop/${service}:latest#${IMAGE_BASE}/${service}:${IMAGE_TAG}#g" "$rendered_manifest"
           done
 
-          find "$manifest_dir" -type f -name '*.yaml' -exec sed -i "s#shop-payment-service:v1.0.0#${IMAGE_BASE}/payment-service:${IMAGE_TAG}#g" {} +
+          sed -i "s#shop-payment-service:v1.0.0#${IMAGE_BASE}/payment-service:${IMAGE_TAG}#g" "$rendered_manifest"
 
-          rendered_manifest="${RUNNER_TEMP}/shop-platform.rendered.yaml"
-          kubectl kustomize "$manifest_dir" > "$rendered_manifest"
           kubectl apply --dry-run=client -f "$rendered_manifest" >/dev/null
-          echo "manifest_dir=${manifest_dir}" >> "$GITHUB_OUTPUT"
           echo "rendered_manifest=${rendered_manifest}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy with Kustomize
@@ -493,7 +494,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kubectl apply -k "${{ steps.manifests.outputs.manifest_dir }}"
+          kubectl apply -f "${{ steps.manifests.outputs.rendered_manifest }}"
 
       - name: Verify rollout status
         if: steps.deploy-target.outputs.skip_deploy != 'true'
