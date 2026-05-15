@@ -405,6 +405,9 @@ jobs:
             exit 1
           fi
 
+          echo "Current context: ${current_context}"
+          echo "Server: ${server}"
+
           skip_deploy="false"
           server_lc="$(printf '%s' "${server}" | tr '[:upper:]' '[:lower:]')"
           context_lc="$(printf '%s' "${current_context}" | tr '[:upper:]' '[:lower:]')"
