@@ -32,14 +32,32 @@ jobs:
         with:
           version: 'latest'
 
+      - name: Install kubeconform
+        shell: bash
+        run: |
+          set -euo pipefail
+          KUBECONFORM_VERSION="v0.6.7"
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz kubeconform
+          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
+
       - name: Install dependencies
         run: npm install
 
       - name: Build all packages
         run: npm run build --workspaces
 
-      - name: Validate Kubernetes manifests
-        run: kubectl kustomize infra/k8s/prod > /tmp/shop-platform.yaml
+      - name: Render Kubernetes manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl kustomize infra/k8s/prod > /tmp/shop-platform.yaml
+
+      - name: Validate Kubernetes manifests offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubeconform -strict -summary /tmp/shop-platform.yaml
 
       - name: Validate Docker Compose files
         env:
@@ -216,6 +234,8 @@ jobs:
       - resolve-coordinates
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    env:
+      KUBECONFIG: ${{ github.workspace }}/kubeconfig
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -245,25 +265,33 @@ jobs:
           version: 'latest'
 
       - name: Decode kubeconfig
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > kubeconfig
         shell: bash
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > "$KUBECONFIG"
+
+      - name: Verify Kubernetes context
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl config current-context
+          kubectl cluster-info
 
       - name: Deploy with Kustomize
-        run: |
-          find infra/k8s/prod -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${{ needs.resolve-coordinates.outputs.image_base }}#g" {} +
-          KUBECONFIG=kubeconfig kubectl apply -k infra/k8s/prod
         shell: bash
+        run: |
+          set -euo pipefail
+          find infra/k8s/prod -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${{ needs.resolve-coordinates.outputs.image_base }}#g" {} +
+          kubectl apply -k infra/k8s/prod
 
       - name: Verify rollout status
-        run: |
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/auth-service --timeout=180s || true
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/invoice-service --timeout=180s || true
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/payment-service --timeout=180s || true
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/wallet-service --timeout=180s || true
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/fraud-service --timeout=180s || true
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/ledger-service --timeout=180s || true
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/compliance-service --timeout=180s || true
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/analytics-service --timeout=180s || true
-          KUBECONFIG=kubeconfig kubectl rollout status deployment/audit-service --timeout=180s || true
         shell: bash
+        run: |
+          kubectl rollout status deployment/auth-service --timeout=180s || true
+          kubectl rollout status deployment/invoice-service --timeout=180s || true
+          kubectl rollout status deployment/payment-service --timeout=180s || true
+          kubectl rollout status deployment/wallet-service --timeout=180s || true
+          kubectl rollout status deployment/fraud-service --timeout=180s || true
+          kubectl rollout status deployment/ledger-service --timeout=180s || true
+          kubectl rollout status deployment/compliance-service --timeout=180s || true
+          kubectl rollout status deployment/analytics-service --timeout=180s || true
+          kubectl rollout status deployment/audit-service --timeout=180s || true
