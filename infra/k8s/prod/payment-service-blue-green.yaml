@@ -39,7 +39,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: payment-service
-          image: shop-payment-service:v1.0.0
+          image: REPLACE_WITH_REGISTRY/shop/payment-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

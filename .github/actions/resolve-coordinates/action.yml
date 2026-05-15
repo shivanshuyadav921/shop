@@ -102,6 +102,8 @@ runs:
           exit 1
         fi
 
+        raw_registry="$(printf '%s' "$raw_registry" | tr -d '[:space:]')"
+
         if [ -z "$raw_registry" ]; then
           raw_registry="ghcr.io/${repository_owner}"
           registry_source="fallback"
@@ -127,11 +129,7 @@ runs:
           exit 1
         fi
 
-        if [ -n "$registry_path" ]; then
-          image_base="${registry_host}/${registry_path}/shop"
-        else
-          image_base="${registry_host}/shop"
-        fi
+        image_base="${raw_registry}/shop"
 
         if [ -z "$commit_sha" ]; then
           echo "Commit SHA is empty or invalid" >&2

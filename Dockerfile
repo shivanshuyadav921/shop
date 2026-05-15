@@ -1,4 +1,4 @@
-ARG NODE_VERSION=20-bookworm-slim
+ARG NODE_VERSION=24-bookworm-slim
 
 FROM node:${NODE_VERSION} AS base
 WORKDIR /app

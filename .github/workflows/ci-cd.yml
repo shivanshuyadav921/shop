@@ -13,6 +13,10 @@ permissions:
   contents: read
   packages: write
 
+env:
+  NODE_VERSION: '24'
+  KUBECTL_VERSION: 'latest'
+
 jobs:
   build:
     name: Workspace build
@@ -24,13 +28,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v5
         with:
-          version: 'latest'
+          version: ${{ env.KUBECTL_VERSION }}
 
       - name: Install kubeconform
         shell: bash
@@ -80,6 +84,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     outputs:
+      registry_input: ${{ steps.registry-input.outputs.registry_url }}
       registry_url: ${{ steps.coordinates.outputs.registry_url }}
       registry_host: ${{ steps.coordinates.outputs.registry_host }}
       registry_path: ${{ steps.coordinates.outputs.registry_path }}
@@ -94,11 +99,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve registry input
+        id: registry-input
+        shell: bash
+        env:
+          REGISTRY_URL_SECRET: ${{ secrets.REGISTRY_URL }}
+          REGISTRY_URL_VAR: ${{ vars.REGISTRY_URL }}
+        run: |
+          set -euo pipefail
+
+          registry_url="${REGISTRY_URL_SECRET:-}"
+          registry_source="secret"
+
+          if [ -z "$registry_url" ]; then
+            registry_url="${REGISTRY_URL_VAR:-}"
+            registry_source="variable"
+          fi
+
+          registry_url="$(printf '%s' "$registry_url" | tr -d '[:space:]')"
+          echo "registry_url=${registry_url}" >> "$GITHUB_OUTPUT"
+          echo "registry_source=${registry_source}" >> "$GITHUB_OUTPUT"
+
       - name: Resolve coordinates
         id: coordinates
         uses: ./.github/actions/resolve-coordinates
         with:
-          registry_url: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || '' }}
+          registry_url: ${{ steps.registry-input.outputs.registry_url }}
           repository: ${{ github.repository }}
           repository_owner: ${{ github.repository_owner }}
           repository_name: ${{ github.event.repository.name || '' }}
@@ -131,6 +157,7 @@ jobs:
           echo "${{ steps.coordinates.outputs.registry_host }}"
           echo "${{ steps.coordinates.outputs.image_base }}"
           echo "${{ steps.coordinates.outputs.image_tag }}"
+          echo "${{ steps.coordinates.outputs.registry_source }}"
 
   docker-publish:
     name: Build and publish service images
@@ -183,15 +210,19 @@ jobs:
         env:
           REGISTRY_USERNAME_SECRET: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD_SECRET: ${{ secrets.REGISTRY_PASSWORD }}
+          REGISTRY_HOST: ${{ needs.resolve-coordinates.outputs.registry_host }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+
           username="${REGISTRY_USERNAME_SECRET:-}"
           password="${REGISTRY_PASSWORD_SECRET:-}"
 
           if [ -n "$username" ] && [ -n "$password" ]; then
             :
-          elif [ "${{ needs.resolve-coordinates.outputs.registry_host }}" = "ghcr.io" ]; then
+          elif [ "${REGISTRY_HOST}" = "ghcr.io" ]; then
             username="${GITHUB_ACTOR}"
-            password="${{ github.token }}"
+            password="${GITHUB_TOKEN}"
           else
             echo 'Registry credentials are missing for the configured registry' >&2
             exit 1
@@ -213,7 +244,7 @@ jobs:
           password: ${{ steps.registry-auth.outputs.password }}
 
       - name: Build and push service image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -236,9 +267,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     environment:
       name: production
-    env:
-      KUBECONFIG: ${{ github.workspace }}/kubeconfig
-      KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -265,10 +293,29 @@ jobs:
       - name: Install kubectl
         uses: azure/setup-kubectl@v5
         with:
-          version: 'latest'
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Resolve Kubernetes credentials
+        id: kube-config
+        shell: bash
+        env:
+          KUBE_CONFIG_DATA_SECRET: ${{ secrets.KUBE_CONFIG_DATA }}
+        run: |
+          set -euo pipefail
+
+          kube_config_data="${KUBE_CONFIG_DATA_SECRET:-}"
+          if [ -z "$kube_config_data" ]; then
+            echo "KUBE_CONFIG_DATA is empty or unavailable in the deploy job scope" >&2
+            exit 1
+          fi
+
+          echo "::add-mask::$kube_config_data"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
 
       - name: Verify Kubernetes credentials
         shell: bash
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
         run: |
           set -euo pipefail
 
@@ -281,6 +328,9 @@ jobs:
 
       - name: Decode kubeconfig
         shell: bash
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
           set -euo pipefail
 
@@ -294,6 +344,8 @@ jobs:
 
       - name: Validate kubeconfig
         shell: bash
+        env:
+          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
           set -euo pipefail
 
@@ -334,6 +386,8 @@ jobs:
 
       - name: Verify Kubernetes context
         shell: bash
+        env:
+          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
           set -euo pipefail
           kubectl config view >/dev/null
@@ -341,22 +395,51 @@ jobs:
           kubectl config current-context
           kubectl cluster-info
 
-      - name: Deploy with Kustomize
+      - name: Render deployment manifests
+        id: manifests
         shell: bash
+        env:
+          REGISTRY_URL: ${{ needs.resolve-coordinates.outputs.registry_url }}
+          IMAGE_BASE: ${{ needs.resolve-coordinates.outputs.image_base }}
+          IMAGE_TAG: ${{ needs.resolve-coordinates.outputs.image_tag }}
         run: |
           set -euo pipefail
-          find infra/k8s/prod -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${{ needs.resolve-coordinates.outputs.image_base }}#g" {} +
-          kubectl apply -k infra/k8s/prod
+          manifest_dir="$(mktemp -d)"
+          cp -R infra/k8s/prod/. "$manifest_dir/"
+          find "$manifest_dir" -type f -name '*.yaml' -exec sed -i "s#REPLACE_WITH_REGISTRY#${REGISTRY_URL}#g" {} +
+
+          for service in auth-service invoice-service payment-service wallet-service fraud-service ledger-service compliance-service analytics-service audit-service; do
+            find "$manifest_dir" -type f -name '*.yaml' -exec sed -i "s#${REGISTRY_URL}/shop/${service}:latest#${IMAGE_BASE}/${service}:${IMAGE_TAG}#g" {} +
+          done
+
+          find "$manifest_dir" -type f -name '*.yaml' -exec sed -i "s#shop-payment-service:v1.0.0#${IMAGE_BASE}/payment-service:${IMAGE_TAG}#g" {} +
+
+          rendered_manifest="${RUNNER_TEMP}/shop-platform.rendered.yaml"
+          kubectl kustomize "$manifest_dir" > "$rendered_manifest"
+          kubectl apply --dry-run=client -f "$rendered_manifest" >/dev/null
+          echo "manifest_dir=${manifest_dir}" >> "$GITHUB_OUTPUT"
+          echo "rendered_manifest=${rendered_manifest}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy with Kustomize
+        shell: bash
+        env:
+          KUBECONFIG: ${{ github.workspace }}/kubeconfig
+        run: |
+          set -euo pipefail
+          kubectl apply -k "${{ steps.manifests.outputs.manifest_dir }}"
 
       - name: Verify rollout status
         shell: bash
+        env:
+          KUBECONFIG: ${{ github.workspace }}/kubeconfig
         run: |
-          kubectl rollout status deployment/auth-service --timeout=180s || true
-          kubectl rollout status deployment/invoice-service --timeout=180s || true
-          kubectl rollout status deployment/payment-service --timeout=180s || true
-          kubectl rollout status deployment/wallet-service --timeout=180s || true
-          kubectl rollout status deployment/fraud-service --timeout=180s || true
-          kubectl rollout status deployment/ledger-service --timeout=180s || true
-          kubectl rollout status deployment/compliance-service --timeout=180s || true
-          kubectl rollout status deployment/analytics-service --timeout=180s || true
-          kubectl rollout status deployment/audit-service --timeout=180s || true
+          set -euo pipefail
+          kubectl rollout status deployment/auth-service -n shop-fintech --timeout=180s
+          kubectl rollout status deployment/invoice-service -n shop-fintech --timeout=180s
+          kubectl rollout status deployment/payment-service -n shop-fintech --timeout=180s
+          kubectl rollout status deployment/wallet-service -n shop-fintech --timeout=180s
+          kubectl rollout status deployment/fraud-service -n shop-fintech --timeout=180s
+          kubectl rollout status deployment/ledger-service -n shop-fintech --timeout=180s
+          kubectl rollout status deployment/compliance-service -n shop-fintech --timeout=180s
+          kubectl rollout status deployment/analytics-service -n shop-fintech --timeout=180s
+          kubectl rollout status deployment/audit-service -n shop-fintech --timeout=180s
