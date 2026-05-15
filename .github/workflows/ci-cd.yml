@@ -9,6 +9,10 @@ on:
       - main
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     name: Workspace build
@@ -58,6 +62,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    env:
+      REGISTRY_URL_CONFIGURED: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || '' }}
+      REGISTRY_URL: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || format('ghcr.io/{0}', github.repository_owner) }}
     strategy:
       fail-fast: false
       matrix:
@@ -79,15 +86,26 @@ jobs:
         id: registry
         shell: bash
         run: |
-          raw='${{ secrets.REGISTRY_URL }}'
+          raw="${REGISTRY_URL:-}"
+          if [ -z "$raw" ]; then
+            echo 'REGISTRY_URL did not resolve. Configure REGISTRY_URL as a repository secret or variable, or allow the GHCR fallback.' >&2
+            exit 1
+          fi
+
           raw="${raw#http://}"
           raw="${raw#https://}"
           raw="${raw%/}"
+
+          if [ -z "$raw" ] || [ "$raw" = "/" ]; then
+            echo 'REGISTRY_URL is empty or invalid' >&2
+            exit 1
+          fi
+
           registry_host="${raw%%/*}"
           registry_path="${raw#${registry_host}}"
           registry_path="${registry_path#/}"
 
-          if [ -z "$registry_host" ]; then
+          if [ -z "$registry_host" ] || [[ "$registry_host" =~ [[:space:]] ]]; then
             echo 'REGISTRY_URL is empty or invalid' >&2
             exit 1
           fi
@@ -98,8 +116,42 @@ jobs:
             image_base="${registry_host}/shop"
           fi
 
+          echo "Registry configured"
+          if [ -n "${REGISTRY_URL_CONFIGURED:-}" ]; then
+            registry_source="configured"
+          else
+            registry_source="fallback"
+          fi
+
+          echo "REGISTRY_URL=${raw}" >> "$GITHUB_ENV"
           echo "registry_host=${registry_host}" >> "$GITHUB_OUTPUT"
           echo "image_base=${image_base}" >> "$GITHUB_OUTPUT"
+          echo "registry_source=${registry_source}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve registry credentials
+        id: registry-auth
+        shell: bash
+        env:
+          REGISTRY_USERNAME_SECRET: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD_SECRET: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          username="${REGISTRY_USERNAME_SECRET:-}"
+          password="${REGISTRY_PASSWORD_SECRET:-}"
+
+          if [ -n "$username" ] && [ -n "$password" ]; then
+            :
+          elif [ "${{ steps.registry.outputs.registry_host }}" = "ghcr.io" ]; then
+            username="${GITHUB_ACTOR}"
+            password="${{ github.token }}"
+          else
+            echo 'Registry credentials are missing for the configured registry' >&2
+            exit 1
+          fi
+
+          echo "::add-mask::$username"
+          echo "::add-mask::$password"
+          echo "username=${username}" >> "$GITHUB_OUTPUT"
+          echo "password=${password}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -108,8 +160,20 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ steps.registry.outputs.registry_host }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ steps.registry-auth.outputs.username }}
+          password: ${{ steps.registry-auth.outputs.password }}
+
+      - name: Verify resolved registry for matrix build
+        shell: bash
+        run: |
+          if [ -z "${REGISTRY_URL:-}" ]; then
+            echo 'REGISTRY_URL is empty or invalid' >&2
+            exit 1
+          fi
+
+          echo "Registry configured"
+          echo "${{ steps.registry.outputs.registry_host }}"
+          echo "${{ steps.registry.outputs.image_base }}"
 
       - name: Build and push service image
         uses: docker/build-push-action@v5
@@ -131,6 +195,9 @@ jobs:
     needs: docker-publish
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    env:
+      REGISTRY_URL_CONFIGURED: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || '' }}
+      REGISTRY_URL: ${{ secrets.REGISTRY_URL || vars.REGISTRY_URL || format('ghcr.io/{0}', github.repository_owner) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -139,15 +206,26 @@ jobs:
         id: registry
         shell: bash
         run: |
-          raw='${{ secrets.REGISTRY_URL }}'
+          raw="${REGISTRY_URL:-}"
+          if [ -z "$raw" ]; then
+            echo 'REGISTRY_URL did not resolve. Configure REGISTRY_URL as a repository secret or variable, or allow the GHCR fallback.' >&2
+            exit 1
+          fi
+
           raw="${raw#http://}"
           raw="${raw#https://}"
           raw="${raw%/}"
+
+          if [ -z "$raw" ] || [ "$raw" = "/" ]; then
+            echo 'REGISTRY_URL is empty or invalid' >&2
+            exit 1
+          fi
+
           registry_host="${raw%%/*}"
           registry_path="${raw#${registry_host}}"
           registry_path="${registry_path#/}"
 
-          if [ -z "$registry_host" ]; then
+          if [ -z "$registry_host" ] || [[ "$registry_host" =~ [[:space:]] ]]; then
             echo 'REGISTRY_URL is empty or invalid' >&2
             exit 1
           fi
@@ -158,7 +236,20 @@ jobs:
             image_base="${registry_host}/shop"
           fi
 
+          echo "Registry configured"
+          echo "REGISTRY_URL=${raw}" >> "$GITHUB_ENV"
           echo "image_base=${image_base}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify resolved registry for deploy
+        shell: bash
+        run: |
+          if [ -z "${REGISTRY_URL:-}" ]; then
+            echo 'REGISTRY_URL is empty or invalid' >&2
+            exit 1
+          fi
+
+          echo "Registry configured"
+          echo "${{ steps.registry.outputs.image_base }}"
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v5
